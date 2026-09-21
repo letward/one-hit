@@ -21,6 +21,8 @@ signal invites_updated
 signal invite_received(inv: Dictionary)
 signal invite_sent(ok: bool, message: String)
 signal servers_updated
+signal updates_checked(available: bool, info: Dictionary)
+signal update_status(message: String)
 
 const GAME_SLUG := "one-hit"
 const GAME_TITLE := "OneHit"
@@ -44,6 +46,7 @@ var servers: Array = []
 var overlay: OHNeocromOverlay = null
 var pending_setup_online := false
 var publish_lobby := true
+var _update_info: Dictionary = {}
 
 var _jwt := ""
 var _jwt_exp := 0
@@ -774,6 +777,91 @@ func heartbeat_stop(session_key: String) -> void:
 	if not active or session_key == "":
 		return
 	_authed_call("DELETE", "/presence/heartbeat/%s" % session_key, {}, _on_void)
+
+
+# ---------- Auto-Update (Windows) ----------
+
+func local_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "1.0.0"))
+
+
+static func is_newer(latest: String, current: String) -> bool:
+	var pa := latest.split(".")
+	var pb := current.split(".")
+	for i in maxi(pa.size(), pb.size()):
+		var a := int(pa[i]) if i < pa.size() else 0
+		var b := int(pb[i]) if i < pb.size() else 0
+		if a != b:
+			return a > b
+	return false
+
+
+func check_updates() -> void:
+	_raw_call("GET", "/games/updates?slug=%s&version=%s" % [GAME_SLUG, local_version()],
+		{}, false, _on_updates_reply)
+
+
+func _on_updates_reply(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		var d: Dictionary = resp.get("data", {})
+		_update_info = d
+		updates_checked.emit(bool(d.get("update_available", false)), d)
+	else:
+		updates_checked.emit(false, {})
+
+
+func can_self_update() -> bool:
+	return OS.has_feature("windows") and not OS.has_feature("editor")
+
+
+func download_update() -> void:
+	if not can_self_update():
+		update_status.emit("Auto-Update nur in der Windows-Version.")
+		return
+	if _update_info.is_empty() or not bool(_update_info.get("update_available", false)):
+		update_status.emit("Kein Update verfügbar.")
+		return
+	var dl := str(_update_info.get("download_url", ""))
+	if dl == "":
+		update_status.emit("Kein Download-Link.")
+		return
+	if dl.begins_with("/"):
+		dl = api_origin() + dl
+	var exe_dir := OS.get_executable_path().get_base_dir()
+	var target := exe_dir.path_join("OneHit.new.exe")
+	update_status.emit("Lade Update …")
+	var http := HTTPRequest.new()
+	http.timeout = 900
+	http.download_file = target
+	add_child(http)
+	http.request_completed.connect(_on_update_done.bind(http, target, exe_dir))
+
+
+func _on_update_done(result: int, code: int, _h: PackedByteArray, _b: PackedByteArray, http: HTTPRequest, target: String, exe_dir: String) -> void:
+	if is_instance_valid(http):
+		http.queue_free()
+	if result != HTTPRequest.RESULT_SUCCESS or code < 200 or code >= 300:
+		update_status.emit("Download fehlgeschlagen.")
+		return
+	if not FileAccess.file_exists(target):
+		update_status.emit("Download unvollständig.")
+		return
+	var bat := exe_dir.path_join("onehit_update.bat")
+	var f := FileAccess.open(bat, FileAccess.WRITE)
+	if f == null:
+		update_status.emit("Kein Schreibzugriff im Spielordner.")
+		return
+	f.store_string("@echo off\r\n")
+	f.store_string(":waitloop\r\n")
+	f.store_string("tasklist /FI \"PID eq %%1\" 2>NUL | findstr /C:\"%%1\" >NUL\r\n")
+	f.store_string("if %%ERRORLEVEL%%==0 ( timeout /t 1 /nobreak >NUL & goto waitloop )\r\n")
+	f.store_string("move /Y \"%%~dp0OneHit.new.exe\" \"%%~dp0OneHit.exe\" >NUL\r\n")
+	f.store_string("start \"\" \"%%~dp0OneHit.exe\"\r\n")
+	f.store_string("del \"%%~f0\"\r\n")
+	f.close()
+	update_status.emit("Installiere Update …")
+	OS.create_process("cmd.exe", PackedStringArray(["/c", bat, str(OS.get_process_id())]))
+	get_tree().quit()
 
 
 # ---------- Transport ----------

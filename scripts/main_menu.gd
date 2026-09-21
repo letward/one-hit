@@ -31,6 +31,9 @@ var _mode: String = "solo"
 var _btn_tw: Dictionary = {}
 var _embers: Array[CPUParticles2D] = []
 var _last_credits: int = -1
+var _update_box: VBoxContainer
+var _update_label: Label
+var _update_status_l: Label
 var _auth_id: LineEdit
 var _auth_email: LineEdit
 var _auth_pw: LineEdit
@@ -57,6 +60,10 @@ func _ready() -> void:
 	Neocrom.login_finished.connect(_on_nc_login)
 	Neocrom.bonus_claimed.connect(_on_nc_bonus)
 	Neocrom.board_finished.connect(_on_nc_board)
+	Neocrom.updates_checked.connect(_on_nc_updates)
+	Neocrom.update_status.connect(func(msg: String) -> void:
+		if _update_status_l != null:
+			_update_status_l.text = msg)
 	if not _try_launcher_sso():
 		Neocrom.resume()
 	_refresh_lobby()
@@ -70,7 +77,21 @@ func _ready() -> void:
 		_refresh_mode_visibility()
 		_show_screen("setup", false)
 		_refresh_lobby()
+	if Neocrom.can_self_update():
+		Neocrom.check_updates()
 	_play_entrance()
+
+
+func _on_nc_updates(available: bool, info: Dictionary) -> void:
+	if not available or _update_box == null:
+		return
+	var v := str(info.get("latest_version", "?"))
+	var cl := str(info.get("changelog", ""))
+	_update_label.text = "Update %s verfügbar" % v
+	if cl != "":
+		_update_label.text += " — " + cl.left(140)
+	_update_box.visible = true
+	_fade_children(_screens["home"])
 
 
 func _process(_delta: float) -> void:
@@ -126,7 +147,7 @@ func _build() -> void:
 	_toast_label.modulate.a = 0.0
 	vb.add_child(_toast_label)
 	var ver := Label.new()
-	ver.text = "v1.0 · Godot 4.7"
+	ver.text = "v%s · Godot 4.7" % Neocrom.local_version()
 	ver.add_theme_font_size_override("font_size", 11)
 	ver.add_theme_color_override("font_color", TEXT_FAINT)
 	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -170,6 +191,26 @@ func _build_home(s: VBoxContainer) -> void:
 	var b_online := _make_button("Online spielen", Vector2(0, 58), 19)
 	b_online.pressed.connect(func() -> void: _goto_setup("online"))
 	s.add_child(b_online)
+	_update_box = VBoxContainer.new()
+	_update_box.add_theme_constant_override("separation", 6)
+	_update_box.visible = false
+	s.add_child(_update_box)
+	_update_label = Label.new()
+	_update_label.add_theme_font_size_override("font_size", 14)
+	_update_label.add_theme_color_override("font_color", Color(0.45, 0.85, 1.0))
+	_update_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_update_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_update_box.add_child(_update_label)
+	var b_upd := _make_button("Aktualisieren", Vector2(0, 44), 15, true)
+	b_upd.pressed.connect(func() -> void:
+		_update_status_l.text = "Lade herunter …"
+		Neocrom.download_update())
+	_update_box.add_child(b_upd)
+	_update_status_l = Label.new()
+	_update_status_l.add_theme_font_size_override("font_size", 12)
+	_update_status_l.add_theme_color_override("font_color", TEXT_DIM)
+	_update_status_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_update_box.add_child(_update_status_l)
 	var b_set := _make_button("Einstellungen", Vector2(0, 40), 14)
 	b_set.pressed.connect(func() -> void: _show_screen("settings"))
 	s.add_child(b_set)
