@@ -307,7 +307,10 @@ func feed(text: String) -> void:
 	var fin := l.create_tween()
 	fin.tween_property(l, "modulate:a", 1.0, 0.25)
 	while _feed.get_child_count() > 5:
-		(_feed.get_child(0) as Node).queue_free()
+		# queue_free ist deferred -> erst remove_child, sonst Endlosschleife + Freeze!
+		var oldest := _feed.get_child(0)
+		_feed.remove_child(oldest)
+		oldest.queue_free()
 	var tw := l.create_tween()
 	tw.tween_interval(4.0)
 	tw.tween_property(l, "modulate:a", 0.0, 1.0)
