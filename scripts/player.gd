@@ -9,6 +9,8 @@ signal killed_enemy(victim_name: String)
 signal hit_confirmed(kill: bool)
 signal interact_hint(text: String)
 signal weapon_changed(weapon_id: String)
+signal shield_used
+signal respawned
 
 const GRAVITY = 20.0
 const WALK_SPEED = 5.5
@@ -23,6 +25,9 @@ var online: bool = false
 var max_hp: int = 100
 var hp: int = 100
 var alive: bool = true
+var shield: bool = false
+var protect_t: float = 0.0
+var skin_accent: Color = Color(0.4, 0.9, 1.0)
 
 var owned: Array[String] = ["pistole"]
 var current: String = "pistole"
@@ -39,6 +44,7 @@ var gun_tip: Marker3D
 var muzzle_light: OmniLight3D
 var body_mesh: MeshInstance3D
 var name_label: Label3D
+var shield_bubble: MeshInstance3D
 
 var _yaw: float = 0.0
 var _pitch: float = 0.0
@@ -53,6 +59,7 @@ var _kills: int = 0
 var _hold_fire: bool = false
 var _prompt_t: float = 0.0
 var _gun_tween: Tween = null
+var _count_last: int = -1
 
 static var _tracer_mesh: BoxMesh = null
 static var _impact_quad: QuadMesh = null
@@ -74,6 +81,7 @@ func is_local() -> bool:
 
 
 func _ready() -> void:
+	_base_fov = GameConfig.base_fov
 	for w in WeaponDefs.ORDER:
 		mag_left[w] = WeaponDefs.get_def(w)["mag"]
 	collision_layer = 2
@@ -91,6 +99,8 @@ func _ready() -> void:
 			camera.current = true
 	health_changed.emit(hp, max_hp)
 	_emit_ammo()
+	protect_t = 2.0
+	_update_shield_visual()
 
 
 func _build_body() -> void:
@@ -108,8 +118,10 @@ func _build_body() -> void:
 	cap_mesh.height = 1.7
 	body_mesh.mesh = cap_mesh
 	body_mesh.position = Vector3(0, 0.9, 0)
+	var skin: Dictionary = SkinDefs.get_def(Save.skin_selected)
+	skin_accent = skin["accent"]
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.55, 0.85)
+	mat.albedo_color = skin["body"]
 	mat.roughness = 0.6
 	body_mesh.material_override = mat
 	add_child(body_mesh)
@@ -119,8 +131,23 @@ func _build_body() -> void:
 	name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	name_label.font_size = 48
 	name_label.pixel_size = 0.008
-	name_label.modulate = Color(1, 1, 1, 0.9)
+	var lc := skin_accent
+	lc.a = 0.95
+	name_label.modulate = lc
 	add_child(name_label)
+	shield_bubble = MeshInstance3D.new()
+	var sp := SphereMesh.new()
+	sp.radius = 1.1
+	sp.height = 2.2
+	shield_bubble.mesh = sp
+	shield_bubble.position = Vector3(0, 1.0, 0)
+	var sm2 := StandardMaterial3D.new()
+	sm2.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm2.albedo_color = Color(0.3, 0.8, 1.0, 0.22)
+	sm2.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	shield_bubble.material_override = sm2
+	shield_bubble.visible = false
+	add_child(shield_bubble)
 	# Eigenen Körper für lokale Kamera ausblenden (Schatten egal bei simpel)
 	if not online or is_multiplayer_authority():
 		# wird nach Authority gesetzt; sicherheitshalber im _ready deferred prüfen
@@ -131,6 +158,18 @@ func _maybe_hide_self() -> void:
 	if is_local():
 		body_mesh.visible = false
 		name_label.visible = false
+
+
+func _update_shield_visual() -> void:
+	if shield_bubble:
+		shield_bubble.visible = shield or protect_t > 0.0
+
+
+func _shop_open() -> bool:
+	var games := get_tree().get_nodes_in_group("game")
+	if games.is_empty():
+		return false
+	return bool(games[0].get("shop_open"))
 
 
 func _build_head() -> void:
@@ -164,6 +203,9 @@ func _build_head() -> void:
 	sight.position = Vector3(0, 0.11, -0.1)
 	var smat := StandardMaterial3D.new()
 	smat.albedo_color = Color(0.1, 0.1, 0.12)
+	smat.emission_enabled = true
+	smat.emission = SkinDefs.get_def(Save.skin_selected)["accent"]
+	smat.emission_energy_multiplier = 1.2
 	sight.material_override = smat
 	gun_root.add_child(sight)
 	gun_tip = Marker3D.new()
@@ -178,6 +220,8 @@ func _build_head() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local() or not alive:
+		return
+	if _shop_open():
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens: float = GameConfig.sensitivity
@@ -201,6 +245,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		switch_weapon(1)
 	if event.is_action_pressed("weapon_3"):
 		switch_weapon(2)
+	if event.is_action_pressed("weapon_4"):
+		switch_weapon(3)
+	if event.is_action_pressed("weapon_5"):
+		switch_weapon(4)
+	if event.is_action_pressed("weapon_6"):
+		switch_weapon(5)
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			switch_weapon(_current_index() - 1)
@@ -275,10 +325,19 @@ func _physics_process(delta: float) -> void:
 		return
 	if not alive:
 		_respawn_t -= delta
+		var left := int(ceil(maxf(_respawn_t, 0.0)))
+		if left != _count_last:
+			_count_last = left
+			var h := get_tree().get_first_node_in_group("hud")
+			if h != null and h.has_method("show_message"):
+				h.show_message("Respawn in %d …" % maxi(left, 1), 1.0)
 		if _respawn_t <= 0.0:
 			respawn()
 		return
 	cooldown = maxf(0.0, cooldown - delta)
+	if protect_t > 0.0:
+		protect_t -= delta
+		_update_shield_visual()
 	if reloading > 0.0:
 		reloading -= delta
 		if reloading <= 0.0:
@@ -327,9 +386,9 @@ func _physics_process(delta: float) -> void:
 		target_fov = 52.0
 	_fov_kick = lerpf(_fov_kick, 0.0, delta * 8.0)
 	camera.fov = lerpf(camera.fov, target_fov + _fov_kick, delta * 10.0)
-	# Screenshake
+	# Screenshake (abschaltbar)
 	_trauma = maxf(0.0, _trauma - delta * 2.2)
-	if _trauma > 0.0:
+	if _trauma > 0.0 and GameConfig.shake_enabled:
 		var s := _trauma * _trauma * 0.12
 		camera.h_offset = randf_range(-s, s)
 		camera.v_offset = randf_range(-s, s)
@@ -449,6 +508,8 @@ func _fire_single_ray(def: Dictionary, from: Vector3, dir: Vector3) -> void:
 					var killed: bool = c.take_damage(dmg, self)
 					hit_confirmed.emit(killed)
 				AudioManager.play_hit()
+			if c.is_in_group("bot") or c.is_in_group("player"):
+				_spawn_damage_number(end, dmg)
 			# Railgun durchschlägt Charaktere, stoppt an Welt-Geometrie
 			if pierce and (c.is_in_group("bot") or c.is_in_group("player")):
 				if c is CollisionObject3D:
@@ -518,9 +579,40 @@ func _spawn_impact(pos: Vector3, normal: Vector3) -> void:
 			p.queue_free())
 
 
+func _spawn_damage_number(pos: Vector3, dmg: float) -> void:
+	var l := Label3D.new()
+	l.text = "%d" % int(round(dmg))
+	l.font_size = 72
+	l.pixel_size = 0.008
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.modulate = Color(1.0, 0.75, 0.25)
+	get_tree().current_scene.add_child(l)
+	l.global_position = pos + Vector3(randf_range(-0.2, 0.2), 0.3, 0)
+	var tw := l.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(l, "position:y", l.position.y + 0.8, 0.5)
+	tw.tween_property(l, "modulate:a", 0.0, 0.5)
+	tw.chain().tween_callback(l.queue_free)
+
+
 func _emit_ammo() -> void:
 	var def: Dictionary = WeaponDefs.get_def(current)
 	ammo_changed.emit(int(mag_left.get(current, 0)), int(def["mag"]), current, str(def["name"]))
+
+
+func refill_ammo() -> void:
+	for w in owned:
+		mag_left[w] = WeaponDefs.get_def(w)["mag"]
+	_emit_ammo()
+	AudioManager.play_pickup()
+
+
+func upgrade_max_hp() -> void:
+	if max_hp >= 200:
+		return
+	max_hp = mini(200, max_hp + 25)
+	heal(25)
 
 
 func heal_full() -> void:
@@ -531,6 +623,14 @@ func heal_full() -> void:
 func take_damage(amount: float, attacker: Object) -> bool:
 	## Gibt true zurück, wenn das Ziel dadurch stirbt. (Solo + Bot-Angriffe)
 	if not alive:
+		return false
+	if protect_t > 0.0:
+		return false
+	if shield:
+		shield = false
+		_update_shield_visual()
+		shield_used.emit()
+		AudioManager.play_hit()
 		return false
 	if online and not is_multiplayer_authority():
 		return false
@@ -553,6 +653,13 @@ func net_damage(amount: float, killer_id: int, killer_name: String, _unused: int
 	if not is_multiplayer_authority():
 		return
 	if not alive:
+		return
+	if protect_t > 0.0:
+		return
+	if shield:
+		shield = false
+		_update_shield_visual()
+		shield_used.emit()
 		return
 	hp -= int(round(amount))
 	health_changed.emit(hp, max_hp)
@@ -613,6 +720,10 @@ func die(killer_name: String) -> void:
 func respawn() -> void:
 	heal_full()
 	alive = true
+	protect_t = 2.0
+	_count_last = -1
+	_update_shield_visual()
+	respawned.emit()
 	for w in WeaponDefs.ORDER:
 		mag_left[w] = WeaponDefs.get_def(w)["mag"] if owned.has(w) else mag_left.get(w, 0)
 	cooldown = 0.0

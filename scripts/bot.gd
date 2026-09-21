@@ -6,15 +6,16 @@ extends CharacterBody3D
 signal died(bot: OHBot, killer_name: String)
 
 const GRAVITY = 20.0
-const SPEED = 4.4
 const TURN_SPEED = 6.0
 
 var display_name: String = "Bot"
 var hp: float = 100.0
 var alive: bool = true
-var accuracy: float = 0.7 # 0..1, sinkt mit Distanz
+var accuracy: float = 0.7
 var fire_interval: float = 1.1
 var damage: float = 12.0
+var move_speed: float = 4.4
+var skill: float = 0.5
 
 var target: Node3D = null
 var _state: String = "wander"
@@ -24,6 +25,13 @@ var _strafe_t: float = 0.0
 var _shoot_cd: float = 1.0
 var _think_t: float = 0.0
 var _flash: float = 0.0
+var _react_t: float = 0.0
+var _burst_left: int = 0
+var _burst_pause: float = 0.0
+var _last_seen: Vector3 = Vector3.ZERO
+var _has_seen: bool = false
+var _separate: Vector3 = Vector3.ZERO
+var _last_attacker: Node3D = null
 
 static var _tracer_mesh: BoxMesh = null
 
@@ -82,10 +90,14 @@ func _ready() -> void:
 	_pick_wander()
 
 
-func setup_bot(p_name: String, hp_mult: float = 1.0, dmg_mult: float = 1.0) -> void:
+func setup_bot(p_name: String, hp_mult: float = 1.0, dmg_mult: float = 1.0, p_skill: float = 0.5) -> void:
 	display_name = p_name
 	hp = 100.0 * hp_mult
 	damage = 12.0 * dmg_mult
+	skill = clampf(p_skill, 0.0, 1.0)
+	accuracy = 0.5 + 0.45 * skill
+	fire_interval = 1.3 - 0.6 * skill
+	move_speed = 3.8 + 1.6 * skill
 
 
 func _physics_process(delta: float) -> void:
@@ -104,31 +116,75 @@ func _physics_process(delta: float) -> void:
 	_update_move(delta)
 	move_and_slide()
 	_shoot_cd -= delta
-	if _state == "attack" and _shoot_cd <= 0.0 and target != null and is_instance_valid(target):
+	_react_t -= delta
+	_burst_pause -= delta
+	if _state == "attack" and _react_t <= 0.0 and _burst_pause <= 0.0 and _shoot_cd <= 0.0 and target != null and is_instance_valid(target):
+		if _burst_left <= 0:
+			_burst_left = 3
 		_shoot_cd = fire_interval * randf_range(0.85, 1.3)
 		_shoot_at_target()
+		_burst_left -= 1
+		if _burst_left <= 0:
+			_burst_pause = randf_range(0.6, 1.1)
 
 
 func _think() -> void:
 	target = _nearest_player()
-	if target == null:
+	_update_separation()
+	if target == null or not is_instance_valid(target):
+		target = null
 		_state = "wander"
 		return
 	var dist: float = global_position.distance_to(target.global_position)
-	if not _has_los(target):
-		_state = "chase"
-		_wander_target = target.global_position
-		return
-	if dist > 16.0:
-		_state = "chase"
-	elif dist < 7.0:
-		_state = "retreat"
+	if _has_los(target):
+		_last_seen = target.global_position
+		_has_seen = true
+		if dist > 16.0:
+			_set_state("chase")
+		elif dist < 7.0:
+			_set_state("retreat")
+		else:
+			_set_state("attack")
 	else:
-		_state = "attack"
+		if _has_seen:
+			# Letzte bekannte Position prüfen, dann aufgeben
+			_set_state("chase")
+			_wander_target = _last_seen
+			if global_position.distance_to(_last_seen) < 2.0:
+				_has_seen = false
+		else:
+			_state = "wander"
 	_strafe_t -= 0.25
 	if _strafe_t <= 0.0:
 		_strafe_t = randf_range(1.0, 2.5)
 		_strafe_dir = -_strafe_dir if randf() < 0.7 else randf_range(-1.0, 1.0)
+
+
+func _set_state(s: String) -> void:
+	if _state != s:
+		_state = s
+		if s == "attack":
+			# Reaktionsträgheit: nicht sofort losballern
+			_react_t = randf_range(0.2, 0.5) * (1.3 - skill)
+			_burst_left = 0
+			_burst_pause = 0.0
+	if target != null:
+		_wander_target = target.global_position
+
+
+func _update_separation() -> void:
+	_separate = Vector3.ZERO
+	for n in get_tree().get_nodes_in_group("bot"):
+		if n == self or not (n is Node3D):
+			continue
+		var other := n as Node3D
+		if other.get("alive") != null and not bool(other.get("alive")):
+			continue
+		var off: Vector3 = global_position - other.global_position
+		off.y = 0
+		var d := off.length()
+		if d > 0.01 and d < 2.5:
+			_separate += off.normalized() * (1.0 - d / 2.5)
 
 
 func _update_move(delta: float) -> void:
@@ -141,7 +197,7 @@ func _update_move(delta: float) -> void:
 			wish.y = 0
 			wish = wish.normalized()
 		"chase":
-			wish = (target.global_position - global_position)
+			wish = (_wander_target - global_position)
 			wish.y = 0
 			wish = wish.normalized()
 		"retreat":
@@ -161,12 +217,19 @@ func _update_move(delta: float) -> void:
 			elif dist < 8.0:
 				radial = -fwd
 			wish = (radial * 0.8 + side * _strafe_dir).normalized()
+	if _separate.length() > 0.01:
+		if wish.length() > 0.01:
+			wish = (wish + _separate * 0.9).normalized()
+		else:
+			wish = _separate.normalized()
 	if wish.length() > 0.01:
-		# Wand ausweichen: vorne prüfen
+		# Wand ausweichen: vorne prüfen, ggf. hüpfen
 		if _blocked_ahead():
 			wish = wish.rotated(Vector3.UP, 1.2)
-		velocity.x = wish.x * SPEED
-		velocity.z = wish.z * SPEED
+			if _state == "chase" and is_on_floor():
+				velocity.y = 4.0
+		velocity.x = wish.x * move_speed
+		velocity.z = wish.z * move_speed
 		var target_yaw := atan2(-wish.x, -wish.z)
 		rotation.y = lerp_angle(rotation.y, target_yaw, delta * TURN_SPEED)
 	else:
@@ -276,7 +339,10 @@ func take_damage(amount: float, attacker: Object) -> bool:
 	_flash = 1.0
 	# Aggro: Angreifer sofort jagen
 	if attacker is Node3D:
+		_last_attacker = attacker
 		target = attacker
+		_last_seen = attacker.global_position
+		_has_seen = true
 		_state = "chase"
 	if hp <= 0.0:
 		var killer := "?"
@@ -295,6 +361,17 @@ func die(killer_name: String) -> void:
 	alive = false
 	died.emit(self, killer_name)
 	AudioManager.play_kill()
+	# Alarm: Bots in der Nähe jagen den Killer weiter
+	if _last_attacker != null and is_instance_valid(_last_attacker):
+		for n in get_tree().get_nodes_in_group("bot"):
+			if n == self or not (n is OHBot):
+				continue
+			var b := n as OHBot
+			if b.alive and b.global_position.distance_to(global_position) < 12.0:
+				b.target = _last_attacker
+				b._last_seen = _last_attacker.global_position
+				b._has_seen = true
+				b._state = "chase"
 	# Sterbe-Effekt: umfallen + versinken + aufräumen
 	var tw := create_tween()
 	tw.set_parallel(true)

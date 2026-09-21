@@ -97,7 +97,7 @@ func _give(player: OHPlayer) -> void:
 	_cd = respawn_time
 	var roll := randf()
 	var text := ""
-	if roll < 0.38:
+	if roll < 0.30:
 		# Waffe (die, die fehlt, sonst Heal)
 		var missing: Array[String] = []
 		for w in WeaponDefs.ORDER:
@@ -110,14 +110,17 @@ func _give(player: OHPlayer) -> void:
 			var wid: String = missing[randi() % missing.size()]
 			player.give_weapon(wid)
 			text = "NEU: " + str(WeaponDefs.get_def(wid)["name"])
-	elif roll < 0.72:
+	elif roll < 0.55:
 		player.heal(50)
 		text = "+50 HP"
-	else:
+	elif roll < 0.75:
 		for w in player.owned:
 			player.mag_left[w] = WeaponDefs.get_def(w)["mag"]
 		player._emit_ammo()
 		text = "Munition voll"
+	else:
+		Save.add_credits(75)
+		text = "+75 ⚙ Schrott"
 	AudioManager.play_pickup()
 	opened.emit(self, text)
 	_set_open_visual()

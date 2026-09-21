@@ -27,6 +27,10 @@ var _btn_tw: Dictionary = {}
 var _tip_idx: int = 0
 var _tip_tw: Tween = null
 var _embers: Array[CPUParticles2D] = []
+var _credits_label: Label
+var _stats_label: Label
+var _skin_row: HBoxContainer
+var _last_credits: int = -1
 
 const TIPS: Array[String] = [
 	"Tipp: Loot-Boxen geben neue Waffen, Heilung oder Munition.",
@@ -90,6 +94,17 @@ func _build() -> void:
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(sub)
+	_credits_label = Label.new()
+	_credits_label.add_theme_font_size_override("font_size", 18)
+	_credits_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+	_credits_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(_credits_label)
+	_stats_label = Label.new()
+	_stats_label.add_theme_font_size_override("font_size", 13)
+	_stats_label.add_theme_color_override("font_color", TEXT_DIM)
+	_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(_stats_label)
+	_update_economy_labels()
 	vb.add_child(_header("MODUS"))
 	# Modus-Cards
 	var mode_row := HBoxContainer.new()
@@ -113,7 +128,9 @@ func _build() -> void:
 	_name_edit = LineEdit.new()
 	_name_edit.text = GameConfig.player_name
 	_name_edit.custom_minimum_size = Vector2(170, 0)
-	_name_edit.text_changed.connect(func(t: String) -> void: GameConfig.player_name = t)
+	_name_edit.text_changed.connect(func(t: String) -> void:
+		GameConfig.player_name = t
+		Save.mark_dirty())
 	name_row.add_child(_name_edit)
 	name_row.add_child(_dim_label("Sens:"))
 	_sens_slider = HSlider.new()
@@ -123,7 +140,9 @@ func _build() -> void:
 	_sens_slider.value = GameConfig.sensitivity
 	_sens_slider.custom_minimum_size = Vector2(130, 0)
 	_sens_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_sens_slider.value_changed.connect(func(v: float) -> void: GameConfig.sensitivity = v)
+	_sens_slider.value_changed.connect(func(v: float) -> void:
+		GameConfig.sensitivity = v
+		Save.mark_dirty())
 	name_row.add_child(_sens_slider)
 	# Optionen
 	var opt_row := HBoxContainer.new()
@@ -133,7 +152,9 @@ func _build() -> void:
 	_onehit_check = CheckBox.new()
 	_onehit_check.text = "One-Hit Kills"
 	_onehit_check.button_pressed = GameConfig.one_hit
-	_onehit_check.toggled.connect(func(v: bool) -> void: GameConfig.one_hit = v)
+	_onehit_check.toggled.connect(func(v: bool) -> void:
+		GameConfig.one_hit = v
+		Save.mark_dirty())
 	opt_row.add_child(_onehit_check)
 	_bots_label = _dim_label("Bots: %d" % GameConfig.bot_count)
 	opt_row.add_child(_bots_label)
@@ -145,18 +166,60 @@ func _build() -> void:
 	_bots_slider.custom_minimum_size = Vector2(110, 0)
 	_bots_slider.value_changed.connect(func(v: float) -> void:
 		GameConfig.bot_count = int(v)
-		_bots_label.text = "Bots: %d" % int(v))
+		_bots_label.text = "Bots: %d" % int(v)
+		Save.mark_dirty())
 	opt_row.add_child(_bots_slider)
+	var set_row := HBoxContainer.new()
+	set_row.add_theme_constant_override("separation", 12)
+	vb.add_child(set_row)
+	_enter_rows.append(set_row)
+	set_row.add_child(_dim_label("Volume:"))
+	var vol := HSlider.new()
+	vol.min_value = 0.0
+	vol.max_value = 1.0
+	vol.step = 0.01
+	vol.value = GameConfig.volume
+	vol.custom_minimum_size = Vector2(100, 0)
+	vol.value_changed.connect(func(v: float) -> void:
+		GameConfig.volume = v
+		AudioManager.set_master_volume(v)
+		Save.mark_dirty())
+	set_row.add_child(vol)
+	set_row.add_child(_dim_label("FOV:"))
+	var fov := HSlider.new()
+	fov.min_value = 70.0
+	fov.max_value = 90.0
+	fov.step = 1.0
+	fov.value = GameConfig.base_fov
+	fov.custom_minimum_size = Vector2(80, 0)
+	fov.value_changed.connect(func(v: float) -> void:
+		GameConfig.base_fov = v
+		Save.mark_dirty())
+	set_row.add_child(fov)
+	var shake := CheckBox.new()
+	shake.text = "Shake"
+	shake.button_pressed = GameConfig.shake_enabled
+	shake.toggled.connect(func(v: bool) -> void:
+		GameConfig.shake_enabled = v
+		Save.mark_dirty())
+	set_row.add_child(shake)
+	vb.add_child(_header("SKIN"))
+	_skin_row = HBoxContainer.new()
+	_skin_row.add_theme_constant_override("separation", 8)
+	_skin_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(_skin_row)
+	_enter_rows.append(_skin_row)
+	_refresh_skins()
 	# Waffenkarte
 	var w := Label.new()
-	w.text = "[1] P-9 Blaster (schnell)   ·   [2] Scatter-6 (Schrot)   ·   [3] Rail OneHit (Durchschlag)"
+	w.text = "[1] Blaster · [2] Scatter-6 · [3] Rail OneHit · [4] Wasp-9 SMG · [5] Falke DMR · [6] Mauer LMG"
 	w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	w.add_theme_font_size_override("font_size", 13)
 	w.add_theme_color_override("font_color", TEXT_DIM)
 	w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(w)
 	var c := Label.new()
-	c.text = "WASD + Maus · SHIFT Sprint · LEER Springen · E Loot · R Nachladen · ESC Pause"
+	c.text = "WASD + Maus · SHIFT Sprint · LEER Springen · E Loot · R Nachladen · B Shop · F3 FPS · ESC Pause"
 	c.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	c.add_theme_font_size_override("font_size", 13)
 	c.add_theme_color_override("font_color", TEXT_DIM)
@@ -213,6 +276,18 @@ func _build() -> void:
 	ver.add_theme_color_override("font_color", Color(0.45, 0.5, 0.6))
 	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(ver)
+
+
+func _process(_delta: float) -> void:
+	if Save.credits != _last_credits:
+		_update_economy_labels()
+
+
+func _update_economy_labels() -> void:
+	_credits_label.text = "⚙ %d Schrott" % Save.credits
+	_stats_label.text = "🏆 %d Kills · 💀 %d Tode · 🌊 Best-Welle %d · 🎮 %d Runden" % [
+		Save.total_kills, Save.total_deaths, Save.best_wave, Save.games_played]
+	_last_credits = Save.credits
 
 
 func _build_background() -> void:
@@ -399,6 +474,50 @@ func _next_tip() -> void:
 
 
 # ---------- Logik ----------
+
+func _refresh_skins() -> void:
+	for ch in _skin_row.get_children():
+		ch.queue_free()
+	for sid in SkinDefs.ORDER:
+		var def: Dictionary = SkinDefs.get_def(sid)
+		var owned := Save.owns_skin(sid)
+		var selected := Save.skin_selected == sid
+		var label := str(def["name"])
+		if not owned:
+			label += "\n⚙ %d" % int(def["price"])
+		elif selected:
+			label += "\n✓ aktiv"
+		var b := Button.new()
+		b.text = label
+		b.custom_minimum_size = Vector2(92, 54)
+		var body: Color = def["body"]
+		var bg := Color(body.r * 0.35 + 0.04, body.g * 0.35 + 0.04, body.b * 0.35 + 0.06, 1.0)
+		var accent: Color = def["accent"]
+		b.add_theme_stylebox_override("normal", _btn_style(bg, Color(accent, 1.0 if selected else 0.35), 2 if selected else 1))
+		b.add_theme_stylebox_override("hover", _btn_style(bg.lightened(0.15), Color(accent, 1.0), 2))
+		b.add_theme_stylebox_override("pressed", _btn_style(bg.darkened(0.2), Color(accent, 1.0), 2))
+		b.add_theme_stylebox_override("focus", _btn_style(bg, Color(accent, 0.35), 1))
+		var id_copy := sid
+		var price := int(def["price"])
+		b.pressed.connect(func() -> void: _on_skin_pressed(id_copy, price))
+		b.mouse_entered.connect(func() -> void: _juice_to(b, Vector2(1.06, 1.06), 0.12))
+		b.mouse_exited.connect(func() -> void: _juice_to(b, Vector2.ONE, 0.18))
+		_track_pivot(b)
+		_skin_row.add_child(b)
+
+
+func _on_skin_pressed(sid: String, price: int) -> void:
+	if Save.owns_skin(sid):
+		Save.select_skin(sid)
+		_set_status("Skin aktiv: " + str(SkinDefs.get_def(sid)["name"]))
+	elif Save.buy_skin(sid, price):
+		Save.select_skin(sid)
+		_set_status("Skin gekauft: " + str(SkinDefs.get_def(sid)["name"]))
+	else:
+		_set_status("Nicht genug Schrott (⚙ %d nötig)." % price)
+		return
+	_refresh_skins()
+	_update_economy_labels()
 
 func _set_mode(m: String) -> void:
 	_mode = m

@@ -12,6 +12,9 @@ var bot_count: int = 5
 var pending_mode: String = "solo" # "solo" | "online"
 var arena_seed: int = 0
 var mouse_captured: bool = false
+var volume: float = 0.8
+var base_fov: float = 75.0
+var shake_enabled: bool = true
 
 
 func _ready() -> void:
@@ -41,7 +44,12 @@ func _ensure_input() -> void:
 	_key("weapon_1", [KEY_1])
 	_key("weapon_2", [KEY_2])
 	_key("weapon_3", [KEY_3])
+	_key("weapon_4", [KEY_4])
+	_key("weapon_5", [KEY_5])
+	_key("weapon_6", [KEY_6])
 	_key("pause", [KEY_ESCAPE])
+	_key("shop", [KEY_B])
+	_key("fps", [KEY_F3])
 	_mouse("fire", [MOUSE_BUTTON_LEFT])
 	_mouse("aim", [MOUSE_BUTTON_RIGHT])
 

@@ -27,7 +27,12 @@ var paused: bool = false
 
 var hud: OHHud
 var pause_panel: PanelContainer
+var shop: OHShop
+var shop_open: bool = false
 var _last_wave_text: String = ""
+var _pause_sens: HSlider
+var _pause_vol: HSlider
+var _pause_shake: CheckBox
 
 
 func _ready() -> void:
@@ -40,6 +45,9 @@ func _ready() -> void:
 	_build_arena()
 	_build_hud()
 	_build_pause_menu()
+	_build_shop()
+	Save.games_played += 1
+	Save.mark_dirty()
 	GameConfig.set_captured(true)
 	if online:
 		_spawn_online_players()
@@ -52,7 +60,9 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause"):
+	if event.is_action_pressed("shop"):
+		toggle_shop()
+	elif event.is_action_pressed("pause"):
 		toggle_pause()
 
 
@@ -219,7 +229,7 @@ func _build_hud() -> void:
 func _build_pause_menu() -> void:
 	pause_panel = PanelContainer.new()
 	pause_panel.set_anchors_preset(Control.PRESET_CENTER)
-	pause_panel.custom_minimum_size = Vector2(320, 0)
+	pause_panel.custom_minimum_size = Vector2(360, 0)
 	pause_panel.visible = false
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 24)
@@ -243,6 +253,48 @@ func _build_pause_menu() -> void:
 	b_resume.text = "Weiter (Esc)"
 	b_resume.pressed.connect(toggle_pause)
 	vb.add_child(b_resume)
+	var b_shop := Button.new()
+	b_shop.text = "Shop [B]  (⚙ %d)" % Save.credits
+	b_shop.pressed.connect(toggle_shop)
+	vb.add_child(b_shop)
+	var sens_row := HBoxContainer.new()
+	vb.add_child(sens_row)
+	var sens_l := Label.new()
+	sens_l.text = "Sens:"
+	sens_row.add_child(sens_l)
+	_pause_sens = HSlider.new()
+	_pause_sens.min_value = 0.001
+	_pause_sens.max_value = 0.006
+	_pause_sens.step = 0.0001
+	_pause_sens.value = GameConfig.sensitivity
+	_pause_sens.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pause_sens.value_changed.connect(func(v: float) -> void:
+		GameConfig.sensitivity = v
+		Save.mark_dirty())
+	sens_row.add_child(_pause_sens)
+	var vol_row := HBoxContainer.new()
+	vb.add_child(vol_row)
+	var vol_l := Label.new()
+	vol_l.text = "Volume:"
+	vol_row.add_child(vol_l)
+	_pause_vol = HSlider.new()
+	_pause_vol.min_value = 0.0
+	_pause_vol.max_value = 1.0
+	_pause_vol.step = 0.01
+	_pause_vol.value = GameConfig.volume
+	_pause_vol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pause_vol.value_changed.connect(func(v: float) -> void:
+		GameConfig.volume = v
+		AudioManager.set_master_volume(v)
+		Save.mark_dirty())
+	vol_row.add_child(_pause_vol)
+	_pause_shake = CheckBox.new()
+	_pause_shake.text = "Kamera-Shake"
+	_pause_shake.button_pressed = GameConfig.shake_enabled
+	_pause_shake.toggled.connect(func(v: bool) -> void:
+		GameConfig.shake_enabled = v
+		Save.mark_dirty())
+	vb.add_child(_pause_shake)
 	var b_restart := Button.new()
 	b_restart.text = "Neustart"
 	b_restart.pressed.connect(func() -> void:
@@ -267,12 +319,73 @@ func _build_pause_menu() -> void:
 
 
 func toggle_pause() -> void:
-	paused = not paused
-	get_tree().paused = paused
-	pause_panel.visible = paused
-	GameConfig.set_captured(not paused)
-	if paused:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if shop_open:
+		shop_open = false
+		shop.close_shop()
+	else:
+		paused = not paused
+	_apply_time_state()
+
+
+func toggle_shop() -> void:
+	if local_player == null:
+		return
+	shop_open = not shop_open
+	if shop_open:
+		shop.open_shop()
+	else:
+		shop.close_shop()
+	_apply_time_state()
+
+
+func _apply_time_state() -> void:
+	var freeze := paused or (shop_open and not online)
+	get_tree().paused = freeze
+	pause_panel.visible = paused and not shop_open
+	GameConfig.set_captured(not paused and not shop_open)
+
+
+func _build_shop() -> void:
+	shop = OHShop.new()
+	add_child(shop)
+	shop.setup(self)
+
+
+func buy_offer(kind: String, id: String) -> bool:
+	if local_player == null or not local_player.alive:
+		return false
+	match kind:
+		"weapon":
+			var price := WeaponDefs.price_of(id)
+			if local_player.owned.has(id) or not Save.spend(price):
+				return false
+			local_player.give_weapon(id)
+			hud.feed("Gekauft: " + str(WeaponDefs.get_def(id)["name"]))
+		"heal":
+			if local_player.hp >= local_player.max_hp or not Save.spend(40):
+				return false
+			local_player.heal(100)
+			hud.feed("Gekauft: Feld-Heilung")
+		"ammo":
+			if not Save.spend(30):
+				return false
+			local_player.refill_ammo()
+			hud.feed("Gekauft: Munition voll")
+		"maxhp":
+			if local_player.max_hp >= 200 or not Save.spend(120):
+				return false
+			local_player.upgrade_max_hp()
+			hud.feed("Gekauft: Max-HP +25")
+		"shield":
+			if local_player.shield or not Save.spend(100):
+				return false
+			local_player.shield = true
+			local_player._update_shield_visual()
+			hud.feed("Gekauft: Schild")
+		_:
+			return false
+	AudioManager.play_pickup()
+	return true
 
 
 # ---------- Spawns ----------
@@ -338,6 +451,7 @@ func _wire_player(p: OHPlayer) -> void:
 		hud.bind_player(p)
 		p.killed_enemy.connect(_on_local_kill)
 		p.died.connect(_on_player_died)
+		p.shield_used.connect(func() -> void: hud.show_message("🛡 Schild hat gehalten!", 1.2))
 		hud.set_score(kills, deaths)
 	else:
 		p.died.connect(_on_player_died)
@@ -348,7 +462,9 @@ func _spawn_bot(wave_mult_hp: float = 1.0) -> void:
 	add_child(b)
 	b.global_position = get_spawn_point(b)
 	var bot_names := ["Vex", "Rook", "Nova", "Jax", "Kilo", "Mira", "Onyx", "Pax"]
-	b.setup_bot(bot_names[rng.randi() % bot_names.size()] + "-%d" % (bots.size() + 1), wave_mult_hp, 1.0 + (wave - 1) * 0.08)
+	b.setup_bot(bot_names[rng.randi() % bot_names.size()] + "-%d" % (bots.size() + 1),
+		wave_mult_hp, 1.0 + (wave - 1) * 0.08,
+		clampf(0.35 + float(wave) * 0.08 + rng.randf_range(0.0, 0.2), 0.0, 1.0))
 	b.died.connect(_on_bot_died)
 	bots.append(b)
 
@@ -357,6 +473,9 @@ func _spawn_bot(wave_mult_hp: float = 1.0) -> void:
 
 func _start_wave(w: int) -> void:
 	wave = w
+	if w > Save.best_wave:
+		Save.best_wave = w
+		Save.mark_dirty()
 	# Welle skaliert sanft: Basis + 2 pro Welle
 	var count := GameConfig.bot_count + (w - 1) * 2
 	wave_alive_target = count
@@ -389,6 +508,8 @@ func _process(_delta: float) -> void:
 				alive += 1
 		_set_wave_cached("Welle %d · Bots übrig: %d%s" % [wave, alive, " · One-Hit AN" if GameConfig.one_hit else ""])
 		if alive == 0 and local_player != null:
+			Save.add_credits(50)
+			hud.feed("+50 ⚙ Wellen-Bonus · Shop: [B]")
 			_start_wave(wave + 1)
 			local_player.heal(25)
 
@@ -397,8 +518,10 @@ func _on_bot_died(bot: OHBot, killer_name: String) -> void:
 	bots.erase(bot)
 	if not online:
 		kills += 1
+		Save.record_kill()
+		Save.add_credits(25)
 		hud.set_score(kills, deaths)
-		hud.feed("%s 💥 %s" % [killer_name, bot.display_name])
+		hud.feed("%s 💥 %s  (+25 ⚙)" % [killer_name, bot.display_name])
 		if local_player:
 			hud.show_message("+1 Kill", 0.6)
 		_check_online_win()
@@ -408,8 +531,10 @@ func _on_local_kill(victim_name: String) -> void:
 	# Online: eigener Kill (Meldung kommt via RPC notify_kill)
 	if online:
 		kills += 1
+		Save.record_kill()
+		Save.add_credits(25)
 		hud.set_score(kills, deaths)
-		hud.feed("%s 💥 %s" % [GameConfig.player_name, victim_name])
+		hud.feed("%s 💥 %s  (+25 ⚙)" % [GameConfig.player_name, victim_name])
 		_check_online_win()
 
 
@@ -417,6 +542,7 @@ func _on_player_died(victim_name: String, killer_name: String) -> void:
 	hud.feed("%s 💥 %s" % [killer_name, victim_name])
 	if local_player != null and victim_name == local_player.display_name:
 		deaths += 1
+		Save.record_death()
 		hud.set_score(kills, deaths)
 		hud.show_message("Getroffen! Respawn…", 2.0)
 
@@ -426,6 +552,7 @@ func on_kill_feed(killer: String, victim: String) -> void:
 	if local_player != null:
 		if victim == local_player.display_name:
 			deaths += 1
+			Save.record_death()
 			hud.set_score(kills, deaths)
 			hud.show_message("Getroffen! Respawn…", 2.0)
 		elif killer == local_player.display_name:

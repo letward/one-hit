@@ -15,6 +15,13 @@ func _ready() -> void:
 		_pool.append(p)
 
 
+func set_master_volume(v: float) -> void:
+	var db := linear_to_db(clampf(v, 0.001, 1.0))
+	if v <= 0.01:
+		db = -60.0
+	AudioServer.set_bus_volume_db(0, db)
+
+
 func _play(stream: AudioStreamWAV, volume_db: float = -6.0, pitch: float = 1.0) -> void:
 	for p in _pool:
 		if not p.playing:
@@ -51,15 +58,15 @@ func _synth(key: String, dur: float, fn: Callable) -> AudioStreamWAV:
 
 func play_shoot(weapon_id: String) -> void:
 	match weapon_id:
-		"pistole":
+		"pistole", "wasp":
 			_play(_synth("sh_p", 0.14, func(t: float, k: float) -> float:
-				return (1.0 - k) * (0.7 * sign(sin(t * 900.0)) + 0.3 * randf_range(-1.0, 1.0))), -8.0, 1.0)
-		"streu":
+				return (1.0 - k) * (0.7 * sign(sin(t * 900.0)) + 0.3 * randf_range(-1.0, 1.0))), -8.0, 1.15 if weapon_id == "wasp" else 1.0)
+		"streu", "mauer":
 			_play(_synth("sh_s", 0.3, func(t: float, k: float) -> float:
-				return (1.0 - k) * (0.5 * sign(sin(t * 300.0)) + 0.5 * randf_range(-1.0, 1.0))), -4.0, 0.9)
-		"rail":
+				return (1.0 - k) * (0.5 * sign(sin(t * 300.0)) + 0.5 * randf_range(-1.0, 1.0))), -4.0, 1.1 if weapon_id == "mauer" else 0.9)
+		"rail", "falke":
 			_play(_synth("sh_r", 0.5, func(t: float, k: float) -> float:
-				return (1.0 - k) * sin(t * 2400.0 - k * 12.0)), -6.0, 1.0)
+				return (1.0 - k) * sin(t * 2400.0 - k * 12.0)), -6.0, 1.25 if weapon_id == "falke" else 1.0)
 
 
 func play_hit() -> void:

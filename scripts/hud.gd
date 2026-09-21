@@ -24,12 +24,21 @@ var _hp_fill: StyleBoxFlat
 var _msg_tween: Tween = null
 var _last_mag: int = -1
 var _cross_base: int = 34
+var _fps_label: Label
+var _show_fps: bool = false
 
 
 func _ready() -> void:
+	add_to_group("hud")
 	layer = 10
 	_build()
 	set_process(true)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("fps"):
+		_show_fps = not _show_fps
+		_fps_label.visible = _show_fps
 
 
 func _build() -> void:
@@ -153,9 +162,20 @@ func _build() -> void:
 	_vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_vignette)
+	# FPS-Anzeige (F3)
+	_fps_label = Label.new()
+	_fps_label.text = "60 FPS"
+	_fps_label.add_theme_font_size_override("font_size", 14)
+	_fps_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+	_fps_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_fps_label.position = Vector2(12, 8)
+	_fps_label.visible = false
+	add_child(_fps_label)
 
 
 func _process(delta: float) -> void:
+	if _show_fps:
+		_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
 	if _hit_t > 0.0:
 		_hit_t -= delta
 		var a := clampf(_hit_t / 0.3, 0.0, 1.0)
@@ -178,9 +198,17 @@ func bind_player(p: OHPlayer) -> void:
 	p.hit_confirmed.connect(_on_hit)
 	p.interact_hint.connect(_on_prompt)
 	p.weapon_changed.connect(_on_weapon_changed)
+	p.died.connect(func(_v: String, _k: String) -> void: _set_crosshair_visible(false))
+	p.respawned.connect(func() -> void: _set_crosshair_visible(true))
+	_cross.add_theme_color_override("font_color", p.skin_accent)
 	_on_hp(p.hp, p.max_hp)
 	_on_ammo(int(p.mag_left.get(p.current, 0)), int(WeaponDefs.get_def(p.current)["mag"]), p.current, str(WeaponDefs.get_def(p.current)["name"]))
 	_refresh_slots()
+
+
+func _set_crosshair_visible(v: bool) -> void:
+	_cross.visible = v
+	_dot.visible = v
 
 
 func _on_hp(hp: int, max_hp: int) -> void:
@@ -198,6 +226,8 @@ func _on_hp(hp: int, max_hp: int) -> void:
 
 func _on_ammo(mag: int, mag_size: int, weapon_id: String, weapon_name: String) -> void:
 	_ammo.text = "%d / %d" % [mag, mag_size]
+	_ammo.add_theme_color_override("font_color",
+		Color(1.0, 0.35, 0.3) if mag * 4 <= mag_size else Color.WHITE)
 	_weapon.text = weapon_name
 	var spread := float(WeaponDefs.get_def(weapon_id)["spread_deg"])
 	_cross_base = int(28 + spread * 2.0)
