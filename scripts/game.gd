@@ -286,26 +286,22 @@ func _build_hud() -> void:
 func _build_pause_menu() -> void:
 	pause_panel = PanelContainer.new()
 	pause_panel.set_anchors_preset(Control.PRESET_CENTER)
-	pause_panel.custom_minimum_size = Vector2(360, 0)
+	pause_panel.custom_minimum_size = Vector2(340, 0)
 	pause_panel.visible = false
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 24)
-	margin.add_theme_constant_override("margin_right", 24)
-	margin.add_theme_constant_override("margin_top", 20)
-	margin.add_theme_constant_override("margin_bottom", 20)
+	margin.add_theme_constant_override("margin_left", 26)
+	margin.add_theme_constant_override("margin_right", 26)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_bottom", 22)
 	pause_panel.add_child(margin)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
+	vb.add_theme_constant_override("separation", 8)
 	margin.add_child(vb)
 	var title := Label.new()
 	title.text = "Pause"
-	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_font_size_override("font_size", 22)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(title)
-	var hint := Label.new()
-	hint.text = "WASD Laufen · Maus Schießen · 1/2/3 Waffen · E Loot · R Nachladen"
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.add_theme_font_size_override("font_size", 13)
-	vb.add_child(hint)
 	var b_resume := Button.new()
 	b_resume.text = "Weiter (Esc)"
 	b_resume.pressed.connect(toggle_pause)
@@ -346,12 +342,11 @@ func _build_pause_menu() -> void:
 		Save.mark_dirty())
 	vol_row.add_child(_pause_vol)
 	_pause_shake = CheckBox.new()
-	_pause_shake.text = "Kamera-Shake"
+	_pause_shake.text = "Shake"
 	_pause_shake.button_pressed = GameConfig.shake_enabled
 	_pause_shake.toggled.connect(func(v: bool) -> void:
 		GameConfig.shake_enabled = v
 		Save.mark_dirty())
-	vb.add_child(_pause_shake)
 	var fs := CheckBox.new()
 	fs.text = "Vollbild [F11]"
 	fs.button_pressed = GameConfig.is_fullscreen
@@ -359,7 +354,12 @@ func _build_pause_menu() -> void:
 		GameConfig.is_fullscreen = v
 		GameConfig.apply_display()
 		Save.mark_dirty())
-	vb.add_child(fs)
+	var check_row := HBoxContainer.new()
+	check_row.add_theme_constant_override("separation", 16)
+	check_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	check_row.add_child(_pause_shake)
+	check_row.add_child(fs)
+	vb.add_child(check_row)
 	var b_restart := Button.new()
 	b_restart.text = "Neustart"
 	b_restart.pressed.connect(func() -> void:
@@ -611,8 +611,6 @@ func _on_bot_died(bot: OHBot, killer_name: String) -> void:
 		Save.add_credits(25)
 		hud.set_score(kills, deaths)
 		hud.feed("%s 💥 %s  (+25 ⚙)" % [killer_name, bot.display_name])
-		if local_player:
-			hud.show_message("+1 Kill", 0.6)
 		_check_online_win()
 
 
@@ -682,4 +680,3 @@ func _on_barrel_exploded(_bar: OHBarrel) -> void:
 func _on_loot_opened(_box: OHLootBox, reward: String) -> void:
 	if local_player:
 		hud.feed("Loot: " + reward)
-		hud.show_message(reward, 1.2)

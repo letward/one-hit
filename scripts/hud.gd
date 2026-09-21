@@ -48,8 +48,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build() -> void:
 	_cross = Label.new()
 	_cross.text = "+"
-	_cross.add_theme_font_size_override("font_size", 34)
-	_cross.add_theme_color_override("font_color", Color(1, 1, 1, 0.9))
+	_cross.add_theme_font_size_override("font_size", 26)
+	_cross.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	_cross.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	_cross.add_theme_constant_override("shadow_offset_x", 2)
 	_cross.add_theme_constant_override("shadow_offset_y", 2)
@@ -77,7 +77,7 @@ func _build() -> void:
 	_hp_bar.min_value = 0
 	_hp_bar.max_value = 100
 	_hp_bar.value = 100
-	_hp_bar.custom_minimum_size = Vector2(240, 22)
+	_hp_bar.custom_minimum_size = Vector2(200, 14)
 	_hp_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_hp_bar.position = Vector2(20, -56)
 	_hp_bar.show_percentage = false
@@ -94,29 +94,31 @@ func _build() -> void:
 	add_child(_hp_bar)
 	_hp_text = Label.new()
 	_hp_text.text = "100 HP"
-	_hp_text.add_theme_font_size_override("font_size", 18)
+	_hp_text.add_theme_font_size_override("font_size", 14)
+	_hp_text.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
 	_hp_text.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_hp_text.position = Vector2(20, -84)
 	add_child(_hp_text)
 	# Munition unten rechts
 	_ammo = Label.new()
 	_ammo.text = "12 / 12"
-	_ammo.add_theme_font_size_override("font_size", 32)
+	_ammo.add_theme_font_size_override("font_size", 26)
 	_ammo.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_ammo.position = Vector2(-180, -70)
 	_ammo.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(_ammo)
 	_weapon = Label.new()
 	_weapon.text = "P-9 Blaster"
-	_weapon.add_theme_font_size_override("font_size", 16)
+	_weapon.add_theme_font_size_override("font_size", 13)
+	_weapon.add_theme_color_override("font_color", Color(1, 1, 1, 0.65))
 	_weapon.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_weapon.position = Vector2(-260, -100)
 	_weapon.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(_weapon)
 	_slots = Label.new()
 	_slots.text = ""
-	_slots.add_theme_font_size_override("font_size", 14)
-	_slots.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
+	_slots.add_theme_font_size_override("font_size", 12)
+	_slots.add_theme_color_override("font_color", Color(1, 1, 1, 0.5))
 	_slots.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_slots.position = Vector2(-320, -124)
 	_slots.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -124,14 +126,15 @@ func _build() -> void:
 	# Score oben
 	_score = Label.new()
 	_score.text = "Kills: 0"
-	_score.add_theme_font_size_override("font_size", 22)
+	_score.add_theme_font_size_override("font_size", 16)
+	_score.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
 	_score.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_score.position = Vector2(-60, 12)
 	add_child(_score)
 	_wave = Label.new()
 	_wave.text = ""
-	_wave.add_theme_font_size_override("font_size", 16)
-	_wave.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
+	_wave.add_theme_font_size_override("font_size", 13)
+	_wave.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 	_wave.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_wave.position = Vector2(-60, 42)
 	add_child(_wave)
@@ -153,7 +156,7 @@ func _build() -> void:
 	# Center-Message
 	_msg = Label.new()
 	_msg.text = ""
-	_msg.add_theme_font_size_override("font_size", 40)
+	_msg.add_theme_font_size_override("font_size", 30)
 	_msg.set_anchors_preset(Control.PRESET_CENTER)
 	_msg.position = Vector2(-200, -80)
 	_msg.custom_minimum_size = Vector2(400, 60)
@@ -280,7 +283,7 @@ func _on_ammo(mag: int, mag_size: int, weapon_id: String, weapon_name: String) -
 		Color(1.0, 0.35, 0.3) if mag * 4 <= mag_size else Color.WHITE)
 	_weapon.text = weapon_name
 	var spread := float(WeaponDefs.get_def(weapon_id)["spread_deg"])
-	_cross_base = int(28 + spread * 2.0)
+	_cross_base = int(20 + spread * 1.5)
 	_cross.add_theme_font_size_override("font_size", _cross_base)
 	if _last_mag >= 0 and mag < _last_mag:
 		_punch_cross()
@@ -290,7 +293,7 @@ func _on_ammo(mag: int, mag_size: int, weapon_id: String, weapon_name: String) -
 
 func _punch_cross() -> void:
 	var tw := create_tween()
-	tw.tween_method(_set_cross_size, float(_cross_base) + 12.0, float(_cross_base), 0.15)
+	tw.tween_method(_set_cross_size, float(_cross_base) + 6.0, float(_cross_base), 0.15)
 
 
 func _set_cross_size(s: float) -> void:
@@ -304,16 +307,17 @@ func _on_weapon_changed(_wid: String) -> void:
 func _refresh_slots() -> void:
 	if _player == null:
 		return
+	# Zen: nur eigene Slots, aktueller in Klammern
 	var parts: PackedStringArray = []
 	for i in WeaponDefs.ORDER.size():
 		var wid: String = WeaponDefs.ORDER[i]
-		var tag := "[%d] %s" % [i + 1, str(WeaponDefs.get_def(wid)["name"])]
 		if not _player.owned.has(wid):
-			tag = "[?] ???"
-		elif wid == _player.current:
-			tag = "> " + tag + " <"
-		parts.append(tag)
-	_slots.text = "   ".join(parts)
+			continue
+		if wid == _player.current:
+			parts.append("[%d]" % [i + 1])
+		else:
+			parts.append("%d" % [i + 1])
+	_slots.text = " · ".join(parts)
 
 
 func _on_hit(kill: bool) -> void:
@@ -337,19 +341,19 @@ func set_wave(text: String) -> void:
 func feed(text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 14)
-	l.add_theme_color_override("font_color", Color(1, 1, 1, 0.9))
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	_feed.add_child(l)
 	l.modulate.a = 0.0
 	var fin := l.create_tween()
 	fin.tween_property(l, "modulate:a", 1.0, 0.25)
-	while _feed.get_child_count() > 5:
-		# queue_free ist deferred -> erst remove_child, sonst Endlosschleife + Freeze!
+	# Zen: nur 3 Einträge, schneller weg
+	while _feed.get_child_count() > 3:
 		var oldest := _feed.get_child(0)
 		_feed.remove_child(oldest)
 		oldest.queue_free()
 	var tw := l.create_tween()
-	tw.tween_interval(4.0)
+	tw.tween_interval(3.0)
 	tw.tween_property(l, "modulate:a", 0.0, 1.0)
 	tw.tween_callback(l.queue_free)
 
@@ -359,6 +363,6 @@ func show_message(text: String, dur: float = 2.0) -> void:
 	_msg_t = dur
 	if _msg_tween != null and _msg_tween.is_valid():
 		_msg_tween.kill()
-	_msg.scale = Vector2(0.85, 0.85)
+	_msg.scale = Vector2(0.95, 0.95)
 	_msg_tween = create_tween()
-	_msg_tween.tween_property(_msg, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_msg_tween.tween_property(_msg, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)

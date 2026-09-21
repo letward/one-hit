@@ -20,7 +20,7 @@ func setup(game: OHGame) -> void:
 func _build() -> void:
 	_root = PanelContainer.new()
 	_root.set_anchors_preset(Control.PRESET_CENTER)
-	_root.custom_minimum_size = Vector2(460, 0)
+	_root.custom_minimum_size = Vector2(430, 0)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.05, 0.08, 0.15, 0.96)
 	sb.set_corner_radius_all(14)
@@ -37,11 +37,11 @@ func _build() -> void:
 	margin.add_theme_constant_override("margin_bottom", 18)
 	_root.add_child(margin)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
+	vb.add_theme_constant_override("separation", 6)
 	margin.add_child(vb)
 	var title := Label.new()
-	title.text = "SHOP  ·  [B] schließen"
-	title.add_theme_font_size_override("font_size", 24)
+	title.text = "Shop · [B]"
+	title.add_theme_font_size_override("font_size", 18)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(title)
 	_credits_label = Label.new()
@@ -49,7 +49,7 @@ func _build() -> void:
 	_credits_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
 	vb.add_child(_credits_label)
 	_items_box = VBoxContainer.new()
-	_items_box.add_theme_constant_override("separation", 6)
+	_items_box.add_theme_constant_override("separation", 5)
 	vb.add_child(_items_box)
 
 
@@ -96,12 +96,12 @@ func _add_row(title: String, desc: String, price: int, owned_or_max: bool, on_bu
 	row.add_child(info)
 	var t := Label.new()
 	t.text = title
-	t.add_theme_font_size_override("font_size", 15)
+	t.add_theme_font_size_override("font_size", 14)
 	info.add_child(t)
 	var d := Label.new()
 	d.text = desc
-	d.add_theme_font_size_override("font_size", 12)
-	d.add_theme_color_override("font_color", Color(0.65, 0.72, 0.85))
+	d.add_theme_font_size_override("font_size", 11)
+	d.add_theme_color_override("font_color", Color(0.6, 0.66, 0.74))
 	info.add_child(d)
 	var b := Button.new()
 	if owned_or_max:
