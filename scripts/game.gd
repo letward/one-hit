@@ -386,7 +386,9 @@ func _build_pause_menu() -> void:
 
 
 func toggle_pause() -> void:
-	if shop_open:
+	if Neocrom.overlay_open():
+		Neocrom.close_overlay()
+	elif shop_open:
 		shop_open = false
 		shop.close_shop()
 	else:
@@ -409,7 +411,7 @@ func _apply_time_state() -> void:
 	var freeze := paused or (shop_open and not online)
 	get_tree().paused = freeze
 	pause_panel.visible = paused and not shop_open
-	GameConfig.set_captured(not paused and not shop_open)
+	GameConfig.set_captured(not paused and not shop_open and not Neocrom.overlay_open())
 
 
 func _build_shop() -> void:

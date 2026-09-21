@@ -94,6 +94,7 @@ func _ensure_input() -> void:
 	_key("pause", [KEY_ESCAPE])
 	_key("shop", [KEY_B])
 	_key("fps", [KEY_F3])
+	_key("overlay", [KEY_F4])
 	_key("fullscreen", [KEY_F11])
 	_mouse("fire", [MOUSE_BUTTON_LEFT])
 	_mouse("aim", [MOUSE_BUTTON_RIGHT])

@@ -46,6 +46,10 @@ im Menü. Ohne Verbindung läuft das Spiel als Offline-Sitzung weiter und
 synchronisiert später. Client: `scripts/neocrom_api.gd`, Basis-URL
 `https://neocrom.pro/api/v1` (REST-Vertrag steht als Kommentar im File).
 
+**Overlay [F4]** — überall verfügbar: Account mit Profilbild, Friends
+einladen (Self-hosted per IP/Port oder offizielle Neocrom-Server),
+Einladungen annehmen, Self-Hosting per Klick.
+
 ## Struktur
 
 ```

@@ -58,6 +58,11 @@ func _ready() -> void:
 		_show_screen("auth", false)
 	else:
 		_apply_session(false)
+	if Neocrom.consume_join_flag():
+		_mode = "online"
+		_refresh_mode_visibility()
+		_show_screen("setup", false)
+		_refresh_lobby()
 	_play_entrance()
 
 
@@ -249,7 +254,7 @@ func _build_setup(s: VBoxContainer) -> void:
 	_start_btn = _make_button("Starten", Vector2(0, 56), 20, true)
 	_start_btn.pressed.connect(_on_start)
 	s.add_child(_start_btn)
-	var hint := _dim_label("WASD + Maus · E Loot · R Nachladen · B Shop · ESC Pause")
+	var hint := _dim_label("WASD + Maus · E Loot · R Nachladen · B Shop · F4 Neocrom · ESC Pause")
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	s.add_child(hint)

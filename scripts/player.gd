@@ -352,6 +352,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _shop_open():
 		return
+	if Neocrom.overlay_open():
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens: float = GameConfig.sensitivity
 		_yaw -= event.relative.x * sens

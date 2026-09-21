@@ -8,6 +8,13 @@ extends Node
 ##   POST {base}/cloud/bonus         Bearer {day} -> {granted, amount}
 ##   GET  {base}/leaderboard?game=X&limit=N -> {entries:[{name,kills,best_wave,games}]}
 ##   POST {base}/leaderboard/submit  Bearer {kills,best_wave,games} -> {ok, rank}
+##   GET  {base}/users/me             Bearer -> {name, avatar_url}
+##   GET  {base}/friends              Bearer -> {friends:[{crom_id,name,online,in_game}]}
+##   POST {base}/friends/invite       Bearer {to,game,join_ip,join_port} -> {ok}
+##   GET  {base}/invites              Bearer -> {invites:[{id,from,from_name,join_ip,join_port,server_id,server_name,seed}]}
+##   POST {base}/invites/{id}/accept  Bearer -> {ok}
+##   POST {base}/invites/{id}/decline Bearer -> {ok}
+##   GET  {base}/servers?game=X       -> {servers:[{id,name,ip,port,players,max_players,seed}]}
 ##
 ## Offline-first: Backend unerreichbar -> lokale CromID-Session + Datei-Cache,
 ## alles wird bei Verbindung transparent synchronisiert. Spiel bleibt spielbar.
@@ -17,6 +24,12 @@ signal login_finished(ok: bool, message: String)
 signal cloud_finished(ok: bool, message: String)
 signal board_finished(ok: bool, message: String)
 signal bonus_claimed(granted: bool, amount: int)
+signal avatar_ready
+signal friends_updated
+signal invites_updated
+signal invite_received(inv: Dictionary)
+signal invite_sent(ok: bool, message: String)
+signal servers_updated
 
 const GAME_ID := "one-hit"
 const BOARD_CACHE := "user://neocrom_board.json"
@@ -30,13 +43,59 @@ var display_name := ""
 var board: Array = []
 var board_ts := 0
 var board_cached := false
+var avatar_tex: Texture2D = null
+var avatar_url := ""
+var friends: Array = []
+var invites: Array = []
+var servers: Array = []
+var overlay: OHNeocromOverlay = null
+var pending_setup_online := false
 
 var _token := ""
 var _busy := false
+var _seen_invites: Dictionary = {}
+var _inv_init := false
+var _poll: Timer = null
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	overlay = OHNeocromOverlay.new()
+	add_child(overlay)
+	overlay.setup(self)
+	_poll = Timer.new()
+	_poll.wait_time = 20.0
+	_poll.autostart = true
+	_poll.timeout.connect(_on_poll)
+	add_child(_poll)
+
+
+func _on_poll() -> void:
+	if active:
+		fetch_invites(true)
+
+
+func overlay_open() -> bool:
+	return overlay != null and overlay.is_open
+
+
+func close_overlay() -> void:
+	if overlay != null:
+		overlay.close_overlay()
+
+
+func consume_join_flag() -> bool:
+	if pending_setup_online:
+		pending_setup_online = false
+		return true
+	return false
+
+
+static func lan_ip() -> String:
+	for a in IP.get_local_addresses():
+		if a.is_valid_ip_address() and not a.begins_with("127.") and ":" not in a:
+			return a
+	return "127.0.0.1"
 
 
 func is_busy() -> bool:
@@ -93,6 +152,8 @@ func _start_session(clean: String, is_online: bool, msg: String) -> void:
 	Save.mark_dirty()
 	session_changed.emit(true)
 	login_finished.emit(true, msg)
+	fetch_avatar()
+	fetch_friends()
 
 
 func resume() -> void:
@@ -133,8 +194,19 @@ func logout() -> void:
 	display_name = ""
 	active = false
 	online = false
+	avatar_tex = null
+	avatar_url = ""
+	friends.clear()
+	invites.clear()
+	servers.clear()
+	_seen_invites.clear()
+	_inv_init = false
 	Save.crom_token = ""
 	Save.mark_dirty()
+	friends_updated.emit()
+	invites_updated.emit()
+	servers_updated.emit()
+	avatar_ready.emit()
 	session_changed.emit(false)
 
 
@@ -287,6 +359,209 @@ func _read_board_cache() -> void:
 		board = Array((data as Dictionary).get("entries", []))
 		board_ts = int((data as Dictionary).get("ts", 0))
 		board_cached = true
+
+
+# ---------- Profil & Avatar ----------
+
+func fetch_avatar() -> void:
+	if not active or _token == "":
+		_make_identicon()
+		return
+	_call("GET", "/users/me", {}, true, _on_profile_reply)
+
+
+func _on_profile_reply(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		var data: Dictionary = resp.get("data", {})
+		if str(data.get("name", "")) != "":
+			display_name = str(data.get("name"))
+		avatar_url = str(data.get("avatar_url", ""))
+	if avatar_url != "":
+		_download_avatar()
+	else:
+		_make_identicon()
+
+
+func _avatar_file() -> String:
+	return "user://avatars/avatar_" + str(absi(hash(crom_id))) + ".png"
+
+
+func _download_avatar() -> void:
+	if FileAccess.file_exists(_avatar_file()):
+		var cached: Image = Image.load_from_file(_avatar_file())
+		if cached != null and not cached.is_empty():
+			avatar_tex = ImageTexture.create_from_image(cached)
+			avatar_ready.emit()
+			return
+	var http := HTTPRequest.new()
+	http.timeout = 10
+	add_child(http)
+	http.request_completed.connect(_on_avatar_done.bind(http))
+	if http.request(avatar_url) != OK:
+		http.queue_free()
+		_make_identicon()
+
+
+func _on_avatar_done(result: int, code: int, _h: PackedByteArray, body: PackedByteArray, http: HTTPRequest) -> void:
+	if is_instance_valid(http):
+		http.queue_free()
+	var img := Image.new()
+	var ok := false
+	if result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300:
+		if img.load_png_from_buffer(body) == OK or img.load_jpg_from_buffer(body) == OK:
+			ok = true
+	if ok:
+		img.resize(96, 96)
+		DirAccess.make_dir_recursive_absolute("user://avatars")
+		img.save_png_to_file(_avatar_file())
+		avatar_tex = ImageTexture.create_from_image(img)
+	else:
+		_make_identicon()
+		return
+	avatar_ready.emit()
+
+
+func _make_identicon() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = absi(hash(crom_id + "_nc"))
+	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var bg := Color(0.10, 0.12, 0.18)
+	var fg := Color.from_hsv(rng.randf(), 0.55, 0.9)
+	var cell := 8
+	for gy in 4:
+		for gx in 4:
+			var on := rng.randf() < 0.5
+			for py in cell:
+				for px in cell:
+					var c := fg if on else bg
+					img.set_pixel(gx * cell + px, gy * cell + py, c)
+					img.set_pixel(63 - (gx * cell + px), gy * cell + py, c)
+	avatar_tex = ImageTexture.create_from_image(img)
+	avatar_ready.emit()
+
+
+# ---------- Freunde & Einladungen ----------
+
+func fetch_friends() -> void:
+	if not active:
+		friends.clear()
+		friends_updated.emit()
+		return
+	_call("GET", "/friends", {}, true, _on_friends_reply)
+
+
+func _on_friends_reply(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		online = true
+		friends = Array(resp.get("data", {}).get("friends", []))
+	else:
+		online = false
+	friends_updated.emit()
+
+
+func send_invite(to_crom: String, join_ip: String, join_port: int) -> void:
+	if not active:
+		invite_sent.emit(false, "Nicht angemeldet.")
+		return
+	_call("POST", "/friends/invite",
+		{"to": to_crom, "game": GAME_ID, "join_ip": join_ip, "join_port": join_port},
+		true, _on_invite_sent)
+
+
+func _on_invite_sent(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		invite_sent.emit(true, "Einladung gesendet.")
+	else:
+		invite_sent.emit(false, "Einladung fehlgeschlagen (offline?).")
+
+
+func fetch_invites(silent: bool = false) -> void:
+	if not active:
+		return
+	_call("GET", "/invites", {}, true, _on_invites_reply.bind(silent))
+
+
+func _on_invites_reply(resp: Dictionary, silent: bool) -> void:
+	if bool(resp.get("_ok", false)):
+		online = true
+		invites = Array(resp.get("data", {}).get("invites", []))
+		for inv in invites:
+			if inv is Dictionary:
+				var iid := str((inv as Dictionary).get("id", ""))
+				if iid != "" and not _seen_invites.has(iid):
+					_seen_invites[iid] = true
+					if _inv_init:
+						invite_received.emit(inv)
+		_inv_init = true
+	else:
+		online = false
+	invites_updated.emit()
+
+
+func accept_invite(inv: Dictionary) -> void:
+	var iid := str(inv.get("id", ""))
+	if _token != "" and iid != "":
+		_call("POST", "/invites/%s/accept" % iid, {}, true, _on_void)
+	_dismiss_invite(iid)
+	join_lobby(str(inv.get("join_ip", "")), int(inv.get("join_port", 7777)),
+		int(inv.get("seed", 0)), str(inv.get("server_id", "")) != "")
+
+
+func decline_invite(inv: Dictionary) -> void:
+	var iid := str(inv.get("id", ""))
+	if _token != "" and iid != "":
+		_call("POST", "/invites/%s/decline" % iid, {}, true, _on_void)
+	_dismiss_invite(iid)
+
+
+func _dismiss_invite(iid: String) -> void:
+	_seen_invites.erase(iid)
+	var rest: Array = []
+	for e in invites:
+		if e is Dictionary and str((e as Dictionary).get("id", "")) != iid:
+			rest.append(e)
+	invites = rest
+	invites_updated.emit()
+
+
+func _on_void(_resp: Dictionary) -> void:
+	pass
+
+
+func join_lobby(ip: String, port: int, seed_value: int, direct: bool) -> String:
+	if ip.strip_edges() == "":
+		return "Keine Adresse."
+	close_overlay()
+	var err := NetworkManager.join_game(ip, port, display_name)
+	if err != "":
+		return err
+	GameConfig.pending_mode = "online"
+	if direct:
+		GameConfig.arena_seed = seed_value if seed_value != 0 else randi()
+		get_tree().change_scene_to_file("res://scenes/arena.tscn")
+	else:
+		pending_setup_online = true
+		get_tree().change_scene_to_file("res://scenes/main.tscn")
+	return ""
+
+
+# ---------- Offizielle Server ----------
+
+func fetch_servers() -> void:
+	_call("GET", "/servers?game=%s" % GAME_ID, {}, false, _on_servers_reply)
+
+
+func _on_servers_reply(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		servers = Array(resp.get("data", {}).get("servers", []))
+	else:
+		servers.clear()
+	servers_updated.emit()
+
+
+func join_server(srv: Dictionary) -> String:
+	return join_lobby(str(srv.get("ip", "")), int(srv.get("port", 7777)),
+		int(srv.get("seed", 0)), true)
 
 
 # ---------- Transport ----------
