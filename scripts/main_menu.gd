@@ -57,7 +57,8 @@ func _ready() -> void:
 	Neocrom.login_finished.connect(_on_nc_login)
 	Neocrom.bonus_claimed.connect(_on_nc_bonus)
 	Neocrom.board_finished.connect(_on_nc_board)
-	Neocrom.resume()
+	if not _try_launcher_sso():
+		Neocrom.resume()
 	_refresh_lobby()
 	_refresh_mode_visibility()
 	if not Neocrom.active:
@@ -451,7 +452,7 @@ func _build_auth(s: VBoxContainer) -> void:
 	_auth_tab_reg.pressed.connect(func() -> void: _set_auth_mode("register"))
 	tabs.add_child(_auth_tab_reg)
 	_auth_id = LineEdit.new()
-	_auth_id.placeholder_text = "CromID"
+	_auth_id.placeholder_text = "Handle, E-Mail oder CromID"
 	_auth_id.text = Save.crom_id
 	_auth_id.custom_minimum_size = Vector2(0, 44)
 	s.add_child(_auth_id)
@@ -569,10 +570,10 @@ func _apply_session(go_home: bool) -> void:
 		_show_screen("home")
 
 
-func _on_nc_bonus(granted: bool, amount: int) -> void:
+func _on_nc_bonus(granted: bool, amount: int, info: String) -> void:
 	_update_economy_labels()
 	if granted:
-		_toast("Tagesbonus +%d ⚙ · Willkommen, %s!" % [amount, Neocrom.display_name])
+		_toast("%s · Willkommen, %s!" % [info if info != "" else ("Tagesbonus +%d" % amount), Neocrom.display_name])
 
 
 func _on_nc_board(_ok: bool, message: String) -> void:
@@ -946,10 +947,34 @@ func _refresh_lobby() -> void:
 	_fade_children(_lobby_box)
 
 
+func _try_launcher_sso() -> bool:
+	# Launcher-Start: --launcher-token <token> --launcher-user <handle>
+	var args := OS.get_cmdline_user_args()
+	var i := 0
+	while i < args.size():
+		if args[i] == "--launcher-token" and i + 1 < args.size():
+			Neocrom.login_launcher(args[i + 1])
+			return true
+		i += 1
+	return false
+
+
 func _on_start() -> void:
 	if not Neocrom.active:
 		_show_screen("auth")
 		return
+	_set_status("Prüfe Zugriff …")
+	Neocrom.check_access(func(a: Dictionary) -> void:
+		var reason := str(a.get("reason", ""))
+		if bool(a.get("access", false)) or reason == "offline":
+			_do_start()
+			return
+		_set_status(Neocrom.access_message(reason))
+		if reason == "login_required":
+			_show_screen("auth"))
+
+
+func _do_start() -> void:
 	GameConfig.player_name = _name_edit.text.strip_edges() if _name_edit.text.strip_edges() != "" else "Spieler"
 	if _mode == "solo":
 		NetworkManager.reset()

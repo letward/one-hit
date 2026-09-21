@@ -1,32 +1,20 @@
 extends Node
-## Autoload "Neocrom": CromID-Login, CromCloud-Stats, Tagesbonus, Rangliste.
+## Autoload "Neocrom": Echte CromID-Integration (Fastify-API).
 ##
-## REST-Vertrag (JSON) gegen base_url — bei Backend-Anpassung NUR hier ändern:
-##   POST {base}/auth/register       {crom_id, email, password} -> {ok, token, name} (409 belegt)
-##   POST {base}/auth/login          {crom_id, password} -> {ok, token, name} (401 falsch)
-##   GET  {base}/cloud/stats         Bearer -> {credits,kills,deaths,games,best_wave,skins_owned,skin_selected}
-##   PUT  {base}/cloud/stats         Bearer + Stats-Dict -> {ok}
-##   POST {base}/cloud/bonus         Bearer {day} -> {granted, amount}
-##   GET  {base}/leaderboard?game=X&limit=N -> {entries:[{name,kills,best_wave,games}]}
-##   POST {base}/leaderboard/submit  Bearer {kills,best_wave,games} -> {ok, rank}
-##   GET  {base}/users/me             Bearer -> {name, avatar_url}
-##   GET  {base}/friends              Bearer -> {friends:[{crom_id,name,online,in_game}]}
-##   POST {base}/friends/add         Bearer {crom_id} -> {ok}
-##   POST {base}/friends/invite       Bearer {to,game,join_ip,join_port} -> {ok}
-##   GET  {base}/invites              Bearer -> {invites:[{id,from,from_name,join_ip,join_port,server_id,server_name,seed}]}
-##   POST {base}/invites/{id}/accept  Bearer -> {ok}
-##   POST {base}/invites/{id}/decline Bearer -> {ok}
-##   GET  {base}/servers?game=X       -> {servers:[{id,name,ip,port,players,max_players,seed}]}
-##   POST {base}/servers/register    Bearer {name,ip,port,seed,players,max_players} -> {ok}
-##
-## Offline-first: Backend unerreichbar -> lokale CromID-Session + Datei-Cache,
-## alles wird bei Verbindung transparent synchronisiert. Spiel bleibt spielbar.
+## Auth: POST /auth/login {identifier,password} / POST /auth/register
+##       {handle,email,password} -> {jwt, session_token, user{handle,nickname,
+##       cromid,avatar_path}}. JWT (900s) via GET /auth/session rotieren.
+## Launcher-SSO: --launcher-token/--launcher-user -> POST /api/games/launch/verify.
+## Cloud: PUT/GET /api/cloud/saves/one-hit/main (save_data-JSON).
+## Bonus: echter Daily-Reward (/api/economy/...) + lokale +100 Schrott/Tag.
+## Board/Invites/Lobbys/Access: /api/games/* (eigene Game-Services).
+## Offline-first: ohne Backend läuft alles lokal weiter.
 
 signal session_changed(active: bool)
 signal login_finished(ok: bool, message: String)
 signal cloud_finished(ok: bool, message: String)
 signal board_finished(ok: bool, message: String)
-signal bonus_claimed(granted: bool, amount: int)
+signal bonus_claimed(granted: bool, amount: int, info: String)
 signal avatar_ready
 signal friends_updated
 signal invites_updated
@@ -34,11 +22,13 @@ signal invite_received(inv: Dictionary)
 signal invite_sent(ok: bool, message: String)
 signal servers_updated
 
-const GAME_ID := "one-hit"
+const GAME_SLUG := "one-hit"
+const GAME_TITLE := "OneHit"
 const BOARD_CACHE := "user://neocrom_board.json"
 const BONUS_AMOUNT := 100
 
-var base_url := "https://neocrom.pro/api/v1"
+var base_url := "https://neocrom.pro/api"
+var game_id := 0
 var active := false
 var online := false
 var crom_id := ""
@@ -53,13 +43,17 @@ var invites: Array = []
 var servers: Array = []
 var overlay: OHNeocromOverlay = null
 var pending_setup_online := false
+var publish_lobby := true
 
-var _token := ""
+var _jwt := ""
+var _jwt_exp := 0
+var _session_token := ""
 var _busy := false
 var _seen_invites: Dictionary = {}
 var _inv_init := false
 var _poll: Timer = null
-var publish_lobby := true
+var _access: Dictionary = {}
+var _access_ts := 0
 
 
 func _ready() -> void:
@@ -85,15 +79,15 @@ func _on_poll() -> void:
 
 
 func _heartbeat_server() -> void:
-	_call("POST", "/servers/register", {
+	_authed_call("POST", "/games/lobbies", {
+		"game_slug": GAME_SLUG,
 		"name": "%s Lobby" % display_name,
-		"game": GAME_ID,
 		"ip": Save.host_ip if Save.host_ip != "" else lan_ip(),
 		"port": Save.host_port,
 		"seed": GameConfig.arena_seed,
 		"players": NetworkManager.players.size(),
 		"max_players": NetworkManager.MAX_PLAYERS,
-	}, true, _on_void)
+	}, _on_void)
 
 
 func set_server_url(url: String) -> void:
@@ -103,6 +97,13 @@ func set_server_url(url: String) -> void:
 	base_url = clean
 	Save.neocrom_url = clean
 	Save.mark_dirty()
+
+
+func api_origin() -> String:
+	var o := base_url.trim_suffix("/")
+	if o.ends_with("/api"):
+		o = o.left(o.length() - 4)
+	return o
 
 
 func overlay_open() -> bool:
@@ -128,16 +129,89 @@ static func lan_ip() -> String:
 	return "127.0.0.1"
 
 
-func is_busy() -> bool:
-	return _busy
+# ---------- Session / Auth ----------
+
+func _store_session(data: Dictionary) -> void:
+	_jwt = str(data.get("jwt", ""))
+	_jwt_exp = _jwt_expires(_jwt)
+	_session_token = str(data.get("session_token", _session_token))
+	var u: Dictionary = data.get("user", {})
+	var nick := str(u.get("nickname", ""))
+	display_name = nick if nick != "" else str(u.get("handle", crom_id))
+	var ap := str(u.get("avatar_path", ""))
+	avatar_url = (api_origin() + ap) if ap != "" else ""
+	Save.crom_token = _session_token
+	Save.mark_dirty()
 
 
-# ---------- Login ----------
+func _jwt_expires(jwt: String) -> int:
+	var parts := jwt.split(".")
+	if parts.size() != 3:
+		return 0
+	var payload := parts[1].replace("-", "+").replace("_", "/")
+	while payload.length() % 4 != 0:
+		payload += "="
+	var data: Variant = JSON.parse_string(Marshalls.base64_to_raw(payload).get_string_from_utf8())
+	if data is Dictionary:
+		return int((data as Dictionary).get("exp", 0))
+	return 0
+
+
+func _jwt_ok() -> bool:
+	if _jwt == "" or _jwt_exp <= 0:
+		return false
+	return _jwt_exp - int(Time.get_unix_time_from_system()) > 60
+
+
+func ensure_auth(cb: Callable) -> void:
+	if _jwt_ok():
+		cb.call(true)
+		return
+	if _session_token == "":
+		cb.call(false)
+		return
+	_raw_call("GET", "/auth/session", {}, false, func(resp: Dictionary) -> void:
+		if bool(resp.get("_ok", false)):
+			var data: Dictionary = resp.get("data", {})
+			_jwt = str(data.get("jwt", _jwt))
+			_jwt_exp = _jwt_expires(_jwt)
+			cb.call(_jwt_ok())
+		else:
+			cb.call(false))
+
+
+func _authed_call(method: String, path: String, body: Dictionary, cb: Callable) -> void:
+	if _session_token == "" and _jwt == "":
+		cb.call({"_ok": false, "_transport": false})
+		return
+	ensure_auth(func(ok_auth: bool) -> void:
+		if not ok_auth:
+			cb.call({"_ok": false, "_transport": false, "_auth": false})
+			return
+		_raw_call(method, path, body, true, func(resp: Dictionary) -> void:
+			if int(resp.get("_http", 0)) == 401:
+				_drop_session()
+				cb.call({"_ok": false, "_transport": true, "_auth": false})
+				return
+			cb.call(resp)))
+
+
+func _drop_session() -> void:
+	_jwt = ""
+	_jwt_exp = 0
+	_session_token = ""
+	Save.crom_token = ""
+	Save.mark_dirty()
+	if active:
+		active = false
+		online = false
+		session_changed.emit(false)
+
 
 func login(id: String, password: String) -> void:
 	var clean := id.strip_edges()
-	if clean.length() < 3:
-		login_finished.emit(false, "CromID zu kurz (min. 3 Zeichen).")
+	if clean.length() < 1:
+		login_finished.emit(false, "CromID, Handle oder E-Mail eingeben.")
 		return
 	if password.length() < 1:
 		login_finished.emit(false, "Bitte Passwort eingeben.")
@@ -145,15 +219,14 @@ func login(id: String, password: String) -> void:
 	if _busy:
 		login_finished.emit(false, "Bitte kurz warten …")
 		return
-	_call("POST", "/auth/login",
-		{"crom_id": clean, "password": password},
-		false, _on_login_reply.bind(clean), 5)
+	_raw_call("POST", "/auth/login", {"identifier": clean, "password": password},
+		false, _on_auth_reply.bind(clean), 6)
 
 
-func register(id: String, email: String, password: String) -> void:
-	var clean := id.strip_edges()
+func register(handle: String, email: String, password: String) -> void:
+	var clean := handle.strip_edges().trim_prefix("@")
 	if clean.length() < 3:
-		login_finished.emit(false, "CromID zu kurz (min. 3 Zeichen).")
+		login_finished.emit(false, "Handle: min. 3 Zeichen.")
 		return
 	if password.length() < 8:
 		login_finished.emit(false, "Passwort: min. 8 Zeichen.")
@@ -161,35 +234,51 @@ func register(id: String, email: String, password: String) -> void:
 	if _busy:
 		login_finished.emit(false, "Bitte kurz warten …")
 		return
-	_call("POST", "/auth/register",
-		{"crom_id": clean, "email": email.strip_edges(), "password": password},
-		false, _on_login_reply.bind(clean), 8)
+	_raw_call("POST", "/auth/register",
+		{"handle": clean, "email": email.strip_edges(), "password": password, "nickname": clean},
+		false, _on_auth_reply.bind(clean), 8)
+
+
+func login_launcher(launch_token: String) -> void:
+	var tok := launch_token.strip_edges()
+	if tok == "":
+		return
+	_raw_call("POST", "/games/launch/verify", {"launch_token": tok},
+		false, _on_auth_reply.bind(""), 8)
+
+
+func _on_auth_reply(resp: Dictionary, clean: String) -> void:
+	if bool(resp.get("_ok", false)):
+		var data: Dictionary = resp.get("data", {})
+		if bool(data.get("requires_2fa", false)):
+			login_finished.emit(false, "2FA aktiv — bitte im Browser anmelden.")
+			return
+		crom_id = clean if clean != "" else str(data.get("user", {}).get("handle", ""))
+		_store_session(data)
+		_start_session(crom_id, true, "Verbunden mit Neocrom.")
+		download_cloud()
+	else:
+		var msg := str(resp.get("error", "Anmeldung fehlgeschlagen."))
+		if not bool(resp.get("_transport", false)):
+			# Offline-first: lokale CromID-Session
+			display_name = clean
+			_start_session(clean, false, "Neocrom offline — lokale CromID-Session.")
+			cloud_finished.emit(false, "offline")
+		else:
+			login_finished.emit(false, msg)
 
 
 func login_offline(id: String) -> void:
-	# Bewusst offline: lokale CromID-Session ohne Backend-Kontakt
 	var clean := id.strip_edges()
 	if clean.length() < 3:
 		login_finished.emit(false, "CromID zu kurz (min. 3 Zeichen).")
 		return
 	display_name = clean
-	_token = ""
+	_jwt = ""
+	_jwt_exp = 0
+	_session_token = ""
 	_start_session(clean, false, "Offline-Sitzung — Sync folgt bei Verbindung.")
 	cloud_finished.emit(false, "offline")
-
-
-func _on_login_reply(resp: Dictionary, clean: String) -> void:
-	if bool(resp.get("_ok", false)):
-		var data: Dictionary = resp.get("data", {})
-		_token = str(data.get("token", ""))
-		display_name = str(data.get("name", clean))
-		_start_session(clean, true, "Verbunden mit Neocrom.")
-		download_cloud()
-	else:
-		# Offline-first: lokale CromID-Session, Sync später
-		display_name = clean
-		_start_session(clean, false, "Neocrom offline — lokale CromID-Session.")
-		cloud_finished.emit(false, "offline")
 
 
 func _start_session(clean: String, is_online: bool, msg: String) -> void:
@@ -197,7 +286,7 @@ func _start_session(clean: String, is_online: bool, msg: String) -> void:
 	active = true
 	online = is_online
 	Save.crom_id = clean
-	Save.crom_token = _token
+	Save.crom_token = _session_token
 	Save.mark_dirty()
 	session_changed.emit(true)
 	login_finished.emit(true, msg)
@@ -206,39 +295,33 @@ func _start_session(clean: String, is_online: bool, msg: String) -> void:
 
 
 func resume() -> void:
-	# Stillers Re-Login beim Start, falls Session gespeichert
 	if Save.crom_id.strip_edges().length() < 3:
 		return
 	if Save.crom_token != "":
-		_token = Save.crom_token
-		_validate_token()
-	else:
-		_offline_resume()
-
-
-func _validate_token() -> void:
-	_call("GET", "/cloud/stats", {}, true, _on_validate_reply)
-
-
-func _on_validate_reply(resp: Dictionary) -> void:
-	if bool(resp.get("_ok", false)):
-		display_name = str(resp.get("data", {}).get("name", Save.crom_id))
-		_start_session(Save.crom_id, true, "Sitzung wiederhergestellt.")
-		_apply_cloud_stats(resp.get("data", {}))
-		cloud_finished.emit(true, "Cloud geladen.")
+		_session_token = Save.crom_token
+		ensure_auth(func(ok_auth: bool) -> void:
+			if ok_auth:
+				display_name = Save.crom_id
+				_start_session(Save.crom_id, true, "Sitzung wiederhergestellt.")
+				download_cloud()
+			else:
+				_offline_resume())
 	else:
 		_offline_resume()
 
 
 func _offline_resume() -> void:
 	display_name = Save.crom_id
-	_token = ""
 	_start_session(Save.crom_id, false, "Offline-Sitzung.")
 	cloud_finished.emit(false, "offline")
 
 
 func logout() -> void:
-	_token = ""
+	if _session_token != "" or _jwt != "":
+		_raw_call("POST", "/auth/logout", {}, true, _on_void)
+	_jwt = ""
+	_jwt_exp = 0
+	_session_token = ""
 	crom_id = ""
 	display_name = ""
 	active = false
@@ -250,6 +333,7 @@ func logout() -> void:
 	servers.clear()
 	_seen_invites.clear()
 	_inv_init = false
+	_access = {}
 	Save.crom_token = ""
 	Save.mark_dirty()
 	friends_updated.emit()
@@ -257,6 +341,37 @@ func logout() -> void:
 	servers_updated.emit()
 	avatar_ready.emit()
 	session_changed.emit(false)
+
+
+# ---------- Zugriff / Preview ----------
+
+func check_access(cb: Callable) -> void:
+	var now := int(Time.get_unix_time_from_system())
+	if not _access.is_empty() and now - int(_access.get("_ts", 0)) < 300:
+		cb.call(_access)
+		return
+	_raw_call("GET", "/games/access?slug=%s" % GAME_SLUG, {}, false, func(resp: Dictionary) -> void:
+		var a := {"access": false, "reason": "offline", "game_id": 0}
+		if bool(resp.get("_ok", false)):
+			var d: Dictionary = resp.get("data", resp)
+			a = {"access": bool(d.get("access", false)), "reason": str(d.get("reason", "")),
+				"game_id": int(d.get("game_id", 0)),
+				"preview_until": str(d.get("preview_until", ""))}
+			game_id = int(a["game_id"])
+		a["_ts"] = now
+		_access = a
+		cb.call(a))
+
+
+func access_message(reason: String) -> String:
+	match reason:
+		"login_required":
+			return "Exklusiv für Neocrom-Members — bitte anmelden."
+		"preview_ended":
+			return "Preview beendet (01.10.2026)."
+		"offline":
+			return "Offline — Zugriff wird geprüft, sobald Neocrom erreichbar ist."
+	return "Kein Zugriff."
 
 
 # ---------- CromCloud ----------
@@ -276,12 +391,14 @@ func cloud_stats() -> Dictionary:
 func download_cloud() -> void:
 	if not active:
 		return
-	_call("GET", "/cloud/stats", {}, true, _on_cloud_down)
+	_authed_call("GET", "/cloud/saves?gameId=%s" % GAME_SLUG, {}, _on_cloud_down)
 
 
 func _on_cloud_down(resp: Dictionary) -> void:
 	if bool(resp.get("_ok", false)):
-		_apply_cloud_stats(resp.get("data", {}))
+		var saves: Array = Array(resp.get("data", {}).get("saves", []))
+		if not saves.is_empty() and saves[0] is Dictionary:
+			_apply_cloud_stats((saves[0] as Dictionary).get("save_data", {}))
 		online = true
 		cloud_finished.emit(true, "Cloud geladen.")
 	else:
@@ -289,28 +406,33 @@ func _on_cloud_down(resp: Dictionary) -> void:
 		cloud_finished.emit(false, "Cloud offline — lokale Daten.")
 
 
-func _apply_cloud_stats(data: Dictionary) -> void:
-	if data.is_empty():
+func _apply_cloud_stats(data: Variant) -> void:
+	if not (data is Dictionary):
 		return
-	# Merge ohne Verlust: Maxima gewinnen, Skins werden vereint
-	Save.credits = maxi(Save.credits, int(data.get("credits", 0)))
-	Save.total_kills = maxi(Save.total_kills, int(data.get("kills", 0)))
-	Save.total_deaths = maxi(Save.total_deaths, int(data.get("deaths", 0)))
-	Save.games_played = maxi(Save.games_played, int(data.get("games", 0)))
-	Save.best_wave = maxi(Save.best_wave, int(data.get("best_wave", 0)))
-	for s in Array(data.get("skins_owned", [])):
+	var d := data as Dictionary
+	Save.credits = maxi(Save.credits, int(d.get("credits", 0)))
+	Save.total_kills = maxi(Save.total_kills, int(d.get("kills", 0)))
+	Save.total_deaths = maxi(Save.total_deaths, int(d.get("deaths", 0)))
+	Save.games_played = maxi(Save.games_played, int(d.get("games", 0)))
+	Save.best_wave = maxi(Save.best_wave, int(d.get("best_wave", 0)))
+	for s in Array(d.get("skins_owned", [])):
 		if not Save.skins_owned.has(str(s)):
 			Save.skins_owned.append(str(s))
-	var sel := str(data.get("skin_selected", ""))
+	var sel := str(d.get("skin_selected", ""))
 	if sel != "" and Save.skins_owned.has(sel):
 		Save.skin_selected = sel
 	Save.save_now()
 
 
-func upload_cloud() -> void:
+func upload_cloud(playtime_seconds: int = 0) -> void:
 	if not active:
 		return
-	_call("PUT", "/cloud/stats", cloud_stats(), true, _on_cloud_up)
+	_authed_call("PUT", "/cloud/saves/%s/main" % GAME_SLUG, {
+		"game_title": GAME_TITLE,
+		"save_name": "OneHit Stand",
+		"save_data": cloud_stats(),
+		"playtime_seconds": playtime_seconds,
+	}, _on_cloud_up)
 
 
 func _on_cloud_up(resp: Dictionary) -> void:
@@ -322,56 +444,67 @@ func _on_cloud_up(resp: Dictionary) -> void:
 		cloud_finished.emit(false, "Cloud offline — lokal gespeichert.")
 
 
-# ---------- Tagesbonus ----------
+# ---------- Tagesbonus (echt + lokal) ----------
 
 func claim_bonus() -> void:
-	var today := Time.get_date_string_from_system()
 	if not active:
-		bonus_claimed.emit(false, 0)
+		bonus_claimed.emit(false, 0, "")
 		return
-	if online or _token != "":
-		_call("POST", "/cloud/bonus", {"day": today}, true, _on_bonus_reply.bind(today))
+	_authed_call("POST", "/economy/daily-reward", {}, _on_bonus_reply)
+
+
+func _on_bonus_reply(resp: Dictionary) -> void:
+	var coins := 0
+	var granted := false
+	if bool(resp.get("_ok", false)):
+		var d: Dictionary = resp.get("data", resp)
+		if bool(d.get("claimed", d.get("ok", false))):
+			granted = true
+			coins = int(d.get("reward_coins", 0))
+	if granted:
+		_grant_local_bonus(coins)
 	else:
-		_grant_local_bonus(today)
+		bonus_claimed.emit(false, 0, "")
 
 
-func _on_bonus_reply(resp: Dictionary, today: String) -> void:
-	if bool(resp.get("_ok", false)) and bool(resp.get("data", {}).get("granted", false)):
-		var amount := int(resp.get("data", {}).get("amount", BONUS_AMOUNT))
-		Save.add_credits(amount)
+func _grant_local_bonus(coins: int) -> void:
+	var today := Time.get_date_string_from_system()
+	if Save.last_bonus_day != today:
+		Save.add_credits(BONUS_AMOUNT)
 		Save.last_bonus_day = today
 		Save.save_now()
-		bonus_claimed.emit(true, amount)
+		var info := "Tagesbonus +100 ⚙"
+		if coins > 0:
+			info += " · +%d CromCoins" % coins
+		bonus_claimed.emit(true, BONUS_AMOUNT, info)
 	else:
-		_grant_local_bonus(today)
-
-
-func _grant_local_bonus(today: String) -> void:
-	if Save.last_bonus_day == today:
-		bonus_claimed.emit(false, 0)
-		return
-	Save.add_credits(BONUS_AMOUNT)
-	Save.last_bonus_day = today
-	Save.save_now()
-	bonus_claimed.emit(true, BONUS_AMOUNT)
+		bonus_claimed.emit(false, 0, "")
 
 
 # ---------- Rangliste ----------
 
 func fetch_board(limit: int = 25) -> void:
-	_call("GET", "/leaderboard?game=%s&limit=%d" % [GAME_ID, limit], {}, false, _on_board_reply)
+	_raw_call("GET", "/games/leaderboard?slug=%s&limit=%d" % [GAME_SLUG, limit], {},
+		false, _on_board_reply)
 
 
 func _on_board_reply(resp: Dictionary) -> void:
 	if bool(resp.get("_ok", false)):
-		board = Array(resp.get("data", {}).get("entries", []))
+		var raw: Array = Array(resp.get("data", {}).get("entries", []))
+		board = []
+		for e in raw:
+			if e is Dictionary:
+				var nm := str((e as Dictionary).get("nickname", ""))
+				if nm == "":
+					nm = str((e as Dictionary).get("handle", "?"))
+				board.append({"name": nm,
+					"kills": int((e as Dictionary).get("kills", 0)),
+					"best_wave": int((e as Dictionary).get("bestWave", (e as Dictionary).get("best_wave", 0)))})
 		board_ts = int(Time.get_unix_time_from_system())
 		board_cached = false
-		online = true
 		_write_board_cache()
 		board_finished.emit(true, "Rangliste aktuell.")
 	else:
-		online = false
 		_read_board_cache()
 		board_finished.emit(false, "Offline-Cache." if not board.is_empty() else "Keine Verbindung.")
 
@@ -379,11 +512,12 @@ func _on_board_reply(resp: Dictionary) -> void:
 func submit_score() -> void:
 	if not active:
 		return
-	_call("POST", "/leaderboard/submit", {
+	_authed_call("POST", "/games/scores", {
+		"game_slug": GAME_SLUG,
 		"kills": Save.total_kills,
 		"best_wave": Save.best_wave,
-		"games": Save.games_played,
-	}, true, _on_submit_reply)
+		"games_played": Save.games_played,
+	}, _on_submit_reply)
 
 
 func _on_submit_reply(resp: Dictionary) -> void:
@@ -413,18 +547,6 @@ func _read_board_cache() -> void:
 # ---------- Profil & Avatar ----------
 
 func fetch_avatar() -> void:
-	if not active or _token == "":
-		_make_identicon()
-		return
-	_call("GET", "/users/me", {}, true, _on_profile_reply)
-
-
-func _on_profile_reply(resp: Dictionary) -> void:
-	if bool(resp.get("_ok", false)):
-		var data: Dictionary = resp.get("data", {})
-		if str(data.get("name", "")) != "":
-			display_name = str(data.get("name"))
-		avatar_url = str(data.get("avatar_url", ""))
 	if avatar_url != "":
 		_download_avatar()
 	else:
@@ -489,32 +611,58 @@ func _make_identicon() -> void:
 	avatar_ready.emit()
 
 
-# ---------- Freunde & Einladungen ----------
+# ---------- Freunde ----------
 
 func fetch_friends() -> void:
 	if not active:
 		friends.clear()
 		friends_updated.emit()
 		return
-	_call("GET", "/friends", {}, true, _on_friends_reply)
+	_authed_call("GET", "/friends", {}, _on_friends_reply)
 
 
 func _on_friends_reply(resp: Dictionary) -> void:
 	if bool(resp.get("_ok", false)):
 		online = true
-		friends = Array(resp.get("data", {}).get("friends", []))
+		friends = []
+		for f in Array(resp.get("data", {}).get("friends", [])):
+			if f is Dictionary:
+				var u: Dictionary = (f as Dictionary).get("user", f)
+				var nm := str(u.get("nickname", ""))
+				if nm == "":
+					nm = str(u.get("handle", "?"))
+				friends.append({"crom_id": str(u.get("handle", "")),
+					"name": nm,
+					"online": bool(u.get("is_online", u.get("isOnline", false))),
+					"in_game": false})
 	else:
 		online = false
 	friends_updated.emit()
+
+
+func add_friend(identifier: String) -> void:
+	if not active:
+		invite_sent.emit(false, "Nicht angemeldet.")
+		return
+	_authed_call("POST", "/friends/add", {"identifier": identifier.strip_edges()}, _on_friend_add)
+
+
+func _on_friend_add(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		fetch_friends()
+		invite_sent.emit(true, "Anfrage gesendet.")
+	else:
+		invite_sent.emit(false, str(resp.get("error", "Fehlgeschlagen.")))
 
 
 func send_invite(to_crom: String, join_ip: String, join_port: int) -> void:
 	if not active:
 		invite_sent.emit(false, "Nicht angemeldet.")
 		return
-	_call("POST", "/friends/invite",
-		{"to": to_crom, "game": GAME_ID, "join_ip": join_ip, "join_port": join_port},
-		true, _on_invite_sent)
+	_authed_call("POST", "/games/invites",
+		{"to": to_crom, "game_slug": GAME_SLUG, "join_ip": join_ip,
+			"join_port": join_port, "seed": GameConfig.arena_seed},
+		_on_invite_sent)
 
 
 func _on_invite_sent(resp: Dictionary) -> void:
@@ -527,7 +675,7 @@ func _on_invite_sent(resp: Dictionary) -> void:
 func fetch_invites(silent: bool = false) -> void:
 	if not active:
 		return
-	_call("GET", "/invites", {}, true, _on_invites_reply.bind(silent))
+	_authed_call("GET", "/games/invites", {}, _on_invites_reply.bind(silent))
 
 
 func _on_invites_reply(resp: Dictionary, silent: bool) -> void:
@@ -539,7 +687,7 @@ func _on_invites_reply(resp: Dictionary, silent: bool) -> void:
 				var iid := str((inv as Dictionary).get("id", ""))
 				if iid != "" and not _seen_invites.has(iid):
 					_seen_invites[iid] = true
-					if _inv_init:
+					if _inv_init and not silent:
 						invite_received.emit(inv)
 		_inv_init = true
 	else:
@@ -549,17 +697,17 @@ func _on_invites_reply(resp: Dictionary, silent: bool) -> void:
 
 func accept_invite(inv: Dictionary) -> void:
 	var iid := str(inv.get("id", ""))
-	if _token != "" and iid != "":
-		_call("POST", "/invites/%s/accept" % iid, {}, true, _on_void)
+	if iid != "":
+		_authed_call("POST", "/games/invites/%s/accept" % iid, {}, _on_void)
 	_dismiss_invite(iid)
 	join_lobby(str(inv.get("join_ip", "")), int(inv.get("join_port", 7777)),
-		int(inv.get("seed", 0)), str(inv.get("server_id", "")) != "")
+		int(inv.get("seed", 0)), false)
 
 
 func decline_invite(inv: Dictionary) -> void:
 	var iid := str(inv.get("id", ""))
-	if _token != "" and iid != "":
-		_call("POST", "/invites/%s/decline" % iid, {}, true, _on_void)
+	if iid != "":
+		_authed_call("POST", "/games/invites/%s/decline" % iid, {}, _on_void)
 	_dismiss_invite(iid)
 
 
@@ -594,29 +742,44 @@ func join_lobby(ip: String, port: int, seed_value: int, direct: bool) -> String:
 	return ""
 
 
-# ---------- Offizielle Server ----------
-
-func fetch_servers() -> void:
-	_call("GET", "/servers?game=%s" % GAME_ID, {}, false, _on_servers_reply)
-
-
-func _on_servers_reply(resp: Dictionary) -> void:
-	if bool(resp.get("_ok", false)):
-		servers = Array(resp.get("data", {}).get("servers", []))
-	else:
-		servers.clear()
-	servers_updated.emit()
-
-
 func join_server(srv: Dictionary) -> String:
 	return join_lobby(str(srv.get("ip", "")), int(srv.get("port", 7777)),
 		int(srv.get("seed", 0)), true)
 
 
+# ---------- Offizielle Server (publizierte Lobbys) ----------
+
+func fetch_servers() -> void:
+	_raw_call("GET", "/games/lobbies?slug=%s" % GAME_SLUG, {}, false, _on_servers_reply)
+
+
+func _on_servers_reply(resp: Dictionary) -> void:
+	if bool(resp.get("_ok", false)):
+		servers = Array(resp.get("data", {}).get("lobbies", []))
+	else:
+		servers.clear()
+	servers_updated.emit()
+
+
+# ---------- Präsenz ----------
+
+func heartbeat(session_key: String) -> void:
+	if not active or game_id <= 0:
+		return
+	_authed_call("POST", "/presence/heartbeat",
+		{"session_key": session_key, "game_id": game_id}, _on_void)
+
+
+func heartbeat_stop(session_key: String) -> void:
+	if not active or session_key == "":
+		return
+	_authed_call("DELETE", "/presence/heartbeat/%s" % session_key, {}, _on_void)
+
+
 # ---------- Transport ----------
 
-func _call(method: String, path: String, body: Dictionary, auth: bool, cb: Callable, timeout_s: int = 8) -> void:
-	if auth and _token == "":
+func _raw_call(method: String, path: String, body: Dictionary, auth: bool, cb: Callable, timeout_s: int = 8) -> void:
+	if auth and _jwt == "" and _session_token == "":
 		cb.call({"_ok": false, "_transport": false})
 		return
 	_busy = true
@@ -625,12 +788,16 @@ func _call(method: String, path: String, body: Dictionary, auth: bool, cb: Calla
 	add_child(http)
 	var headers := PackedStringArray(["Content-Type: application/json"])
 	if auth:
-		headers.append("Authorization: Bearer " + _token)
+		headers.append("Authorization: Bearer " + _jwt)
+		if _session_token != "":
+			headers.append("X-Session-Token: " + _session_token)
 	var m := HTTPClient.METHOD_GET
 	if method == "POST":
 		m = HTTPClient.METHOD_POST
 	elif method == "PUT":
 		m = HTTPClient.METHOD_PUT
+	elif method == "DELETE":
+		m = HTTPClient.METHOD_DELETE
 	var data := ""
 	if m != HTTPClient.METHOD_GET and not body.is_empty():
 		data = JSON.stringify(body)
@@ -653,4 +820,6 @@ func _on_http_done(result: int, code: int, _headers: PackedByteArray, body: Pack
 			resp["_ok"] = bool((data as Dictionary).get("ok", true))
 			resp["data"] = (data as Dictionary)
 			resp["_transport"] = true
+			if (data as Dictionary).has("error"):
+				resp["error"] = str((data as Dictionary)["error"])
 	cb.call(resp)

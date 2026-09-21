@@ -21,6 +21,7 @@ var _login_mode: String = "login"
 var _login_status: Label
 var _friends_rows: VBoxContainer
 var _friends_status: Label
+var _friend_add_edit: LineEdit
 var _inv_rows: VBoxContainer
 var _srv_rows: VBoxContainer
 var _srv_status: Label
@@ -211,6 +212,19 @@ func _build() -> void:
 	_friends_rows = VBoxContainer.new()
 	_friends_rows.add_theme_constant_override("separation", 4)
 	vb.add_child(_friends_rows)
+	var add_row := HBoxContainer.new()
+	add_row.add_theme_constant_override("separation", 8)
+	vb.add_child(add_row)
+	_friend_add_edit = LineEdit.new()
+	_friend_add_edit.placeholder_text = "CromID / @handle"
+	_friend_add_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_row.add_child(_friend_add_edit)
+	var b_add := Button.new()
+	b_add.text = "+ Freund"
+	b_add.pressed.connect(func() -> void:
+		_nc.add_friend(_friend_add_edit.text)
+		_friend_add_edit.text = "")
+	add_row.add_child(b_add)
 	# Einladungen
 	_inv_rows = VBoxContainer.new()
 	_inv_rows.add_theme_constant_override("separation", 4)

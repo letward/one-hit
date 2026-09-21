@@ -2,6 +2,7 @@
 .godot/
 /android/
 exports/
+builds/
 *.tmp
 *.db
 *.db-journal

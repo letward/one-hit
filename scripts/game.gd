@@ -30,6 +30,9 @@ var pause_panel: PanelContainer
 var shop: OHShop
 var shop_open: bool = false
 var _last_wave_text: String = ""
+var _session_key: String = ""
+var _playtime: float = 0.0
+var _hb_t: float = 0.0
 var _pause_sens: HSlider
 var _pause_vol: HSlider
 var _pause_shake: CheckBox
@@ -49,6 +52,7 @@ func _ready() -> void:
 	_build_shop()
 	Save.games_played += 1
 	Save.mark_dirty()
+	_session_key = "onehit-%d-%d" % [int(Time.get_unix_time_from_system()), randi()]
 	GameConfig.set_captured(true)
 	if online:
 		_spawn_online_players()
@@ -371,8 +375,9 @@ func _build_pause_menu() -> void:
 	b_quit.text = "Zum Menü"
 	b_quit.pressed.connect(func() -> void:
 		get_tree().paused = false
-		Neocrom.upload_cloud()
+		Neocrom.upload_cloud(int(_playtime))
 		Neocrom.submit_score()
+		Neocrom.heartbeat_stop(_session_key)
 		NetworkManager.reset()
 		GameConfig.set_captured(false)
 		get_tree().change_scene_to_file("res://scenes/main.tscn"))
@@ -593,6 +598,11 @@ func _mode_tags() -> String:
 func _process(_delta: float) -> void:
 	if get_tree().paused:
 		return
+	_playtime += _delta
+	_hb_t += _delta
+	if _hb_t >= 60.0:
+		_hb_t = 0.0
+		Neocrom.heartbeat(_session_key)
 	if not online:
 		# Wellen-Logik: alle Bots tot -> nächste Welle
 		var alive := 0
@@ -602,7 +612,7 @@ func _process(_delta: float) -> void:
 		_set_wave_cached("Welle %d · Bots übrig: %d%s" % [wave, alive, _mode_tags()])
 		if alive == 0 and local_player != null:
 			Save.add_credits(50)
-			Neocrom.upload_cloud()
+			Neocrom.upload_cloud(int(_playtime))
 			Neocrom.submit_score()
 			hud.feed("+50 ⚙ Wellen-Bonus · Shop: [B]")
 			_start_wave(wave + 1)

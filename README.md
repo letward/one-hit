@@ -37,32 +37,40 @@ Full HD, Vollbild, MSAA, Glow, Schatten, VSync).
 
 Einer klickt **Hosten** (Port, Standard 7777), Freunde **Joinen** per IP + Port. Deathmatch bis 10 Kills.
 
-## Neocrom-Server selbst hosten
+## Neocrom-Integration (echt)
 
-Echter server-seitiger Login (CromID + E-Mail + Passwort, scrypt-Hash,
-Token-Sessions), CromCloud, Tagesbonus, Rangliste, Friends, Einladungen,
-Serverliste. Zero-Dependency — nur Node.js ≥ 22 nötig:
+Das Spiel spricht die echte Neocrom-API (`https://neocrom.pro/api`):
 
-```
-cd server
-node neocrom-server.js   # PORT=8080, DB: neocrom.db (wird angelegt)
-```
+- **Login/Register** mit CromID/Handle/E-Mail + Passwort (JWT-Sessions mit
+  Refresh), **Launcher-SSO** via `--launcher-token`/`--launcher-user`
+- **Zugriff**: Preview gratis bis **01.10.2026**, exklusiv für eingeloggte
+  Members — Start wird ohne Zugriff verweigert
+- **CromCloud-Spielstand**, echter **Tagesbonus** (CromCoins + Streak),
+  **Rangliste**, **Friends**, **Spiel-Einladungen**, **Lobby-Liste**,
+  **Präsenz-Heartbeat**. Offline läuft alles lokal weiter.
 
-Im Spiel (Overlay [F4] → API-URL) auf `http://SERVER-IP:8080/api/v1`
-zeigen. Fürs Internet: Port freigeben / Reverse-Proxy mit HTTPS davor.
-
-## Neocrom (CromID · CromCloud · Rangliste)
-
-Zum Spielen meldest du dich mit deiner **CromID** an. Alle Stats
-(Credits, Kills, Wellen, Skins) werden in der **CromCloud** gespeichert,
-es gibt einen **Tagesbonus (+100 ⚙)** und eine **Rangliste by Neocrom**
-im Menü. Ohne Verbindung läuft das Spiel als Offline-Sitzung weiter und
-synchronisiert später. Client: `scripts/neocrom_api.gd`, Basis-URL
-`https://neocrom.pro/api/v1` (REST-Vertrag steht als Kommentar im File).
+Backend-Änderungen (Repo `neocrom`, Branch `feat/one-hit-preview`):
+`GET/POST /api/games/*` (Launch-Verify, Access, Scores, Lobbys, Invites),
+neue Tabellen (`game_scores`, `game_lobbies`, `game_invites`,
+`game_previews`, `games.slug`), OneHit-Seed (Listing + Preview-Fenster),
+Artifact-Limit 600 MB für Game-Builds.
 
 **Overlay [F4]** — überall verfügbar: Account mit Profilbild, Friends
-einladen (Self-hosted per IP/Port oder offizielle Neocrom-Server),
-Einladungen annehmen, Self-Hosting per Klick.
+einladen, Einladungen annehmen, Self-Hosting per Klick.
+
+## Build & Upload
+
+```
+# Windows-Build (Export-Templates nötig)
+godot --headless --path . --export-release "Windows" "builds/windows/OneHit.exe"
+# Upload ins Neocrom-Store-Backend:
+.\tools\upload-build.ps1 -Jwt <JWT> -GameId <ID>   # Version 1.0.0
+```
+
+`builds/` enthält `OneHit.exe` (eigenständig, PCK eingebettet),
+`manifest.json` (Launcher) und `cover.png` (1200×630 Store-Cover).
+Hinweis: Laut Publishing-Guide ist langfristig ein NSIS/MSI-Installer
+fällig — für die Preview reicht die portable Exe.
 
 ## Struktur
 
