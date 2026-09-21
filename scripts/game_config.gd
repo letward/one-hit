@@ -21,6 +21,15 @@ var msaa: int = 1 # 0=Aus, 1=2x, 2=4x, 3=8x
 var glow: bool = true
 var shadows: bool = true
 var dust: bool = true
+var res_idx: int = 0 # 0=720p, 1=900p, 2=1080p Full HD, 3=Nativ
+
+const RESOLUTIONS: Array[Vector2i] = [
+	Vector2i(1280, 720), Vector2i(1600, 900),
+	Vector2i(1920, 1080), Vector2i.ZERO, # ZERO = nativ
+]
+const RES_NAMES: Array[String] = [
+	"1280 × 720", "1600 × 900", "1920 × 1080 (Full HD)", "Nativ",
+]
 
 
 func _ready() -> void:
@@ -55,6 +64,10 @@ func apply_display() -> void:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	else:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		var r: Vector2i = RESOLUTIONS[clampi(res_idx, 0, 3)]
+		if r == Vector2i.ZERO:
+			r = DisplayServer.screen_get_size()
+		DisplayServer.window_set_size(r)
 	if vsync:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
 	else:

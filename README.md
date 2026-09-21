@@ -26,6 +26,10 @@ Simpler, immersiver Arena-Shooter mit Godot 4.7 — **Solo gegen Bots** oder **O
 | F11 | Vollbild an/aus |
 | ESC | Pause |
 
+Das Menü hat drei Tabs: **Spielen** (Solo/Online + Start), **Pilot**
+(Name, Sound, FOV, Skins, Statistiken) und **Grafik** (Auflösung bis
+Full HD, Vollbild, MSAA, Glow, Schatten, VSync).
+
 ## Online spielen
 
 Einer klickt **Hosten** (Port, Standard 7777), Freunde **Joinen** per IP + Port. Deathmatch bis 10 Kills.
