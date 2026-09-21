@@ -30,6 +30,7 @@ var _embers: Array[CPUParticles2D] = []
 var _credits_label: Label
 var _stats_label: Label
 var _skin_row: HBoxContainer
+var _fs_check: CheckBox
 var _last_credits: int = -1
 
 const TIPS: Array[String] = [
@@ -203,6 +204,63 @@ func _build() -> void:
 		GameConfig.shake_enabled = v
 		Save.mark_dirty())
 	set_row.add_child(shake)
+	vb.add_child(_header("GRAFIK · LEISTUNG"))
+	var gfx1 := HBoxContainer.new()
+	gfx1.add_theme_constant_override("separation", 12)
+	vb.add_child(gfx1)
+	_enter_rows.append(gfx1)
+	gfx1.add_child(_dim_label("MSAA:"))
+	var msaa := OptionButton.new()
+	msaa.add_item("Aus", 0)
+	msaa.add_item("2x", 1)
+	msaa.add_item("4x", 2)
+	msaa.add_item("8x", 3)
+	msaa.selected = clampi(GameConfig.msaa, 0, 3)
+	msaa.item_selected.connect(func(idx: int) -> void:
+		GameConfig.msaa = idx
+		Save.mark_dirty())
+	gfx1.add_child(msaa)
+	var glow_c := CheckBox.new()
+	glow_c.text = "Glow"
+	glow_c.button_pressed = GameConfig.glow
+	glow_c.toggled.connect(func(v: bool) -> void:
+		GameConfig.glow = v
+		Save.mark_dirty())
+	gfx1.add_child(glow_c)
+	var sh_c := CheckBox.new()
+	sh_c.text = "Schatten"
+	sh_c.button_pressed = GameConfig.shadows
+	sh_c.toggled.connect(func(v: bool) -> void:
+		GameConfig.shadows = v
+		Save.mark_dirty())
+	gfx1.add_child(sh_c)
+	var gfx2 := HBoxContainer.new()
+	gfx2.add_theme_constant_override("separation", 12)
+	vb.add_child(gfx2)
+	_enter_rows.append(gfx2)
+	var dust_c := CheckBox.new()
+	dust_c.text = "Staub"
+	dust_c.button_pressed = GameConfig.dust
+	dust_c.toggled.connect(func(v: bool) -> void:
+		GameConfig.dust = v
+		Save.mark_dirty())
+	gfx2.add_child(dust_c)
+	var vsync_c := CheckBox.new()
+	vsync_c.text = "VSync"
+	vsync_c.button_pressed = GameConfig.vsync
+	vsync_c.toggled.connect(func(v: bool) -> void:
+		GameConfig.vsync = v
+		GameConfig.apply_display()
+		Save.mark_dirty())
+	gfx2.add_child(vsync_c)
+	_fs_check = CheckBox.new()
+	_fs_check.text = "Vollbild [F11]"
+	_fs_check.button_pressed = GameConfig.is_fullscreen
+	_fs_check.toggled.connect(func(v: bool) -> void:
+		GameConfig.is_fullscreen = v
+		GameConfig.apply_display()
+		Save.mark_dirty())
+	gfx2.add_child(_fs_check)
 	vb.add_child(_header("SKIN"))
 	_skin_row = HBoxContainer.new()
 	_skin_row.add_theme_constant_override("separation", 8)
@@ -281,6 +339,8 @@ func _build() -> void:
 func _process(_delta: float) -> void:
 	if Save.credits != _last_credits:
 		_update_economy_labels()
+	if _fs_check != null and _fs_check.button_pressed != GameConfig.is_fullscreen:
+		_fs_check.set_pressed_no_signal(GameConfig.is_fullscreen)
 
 
 func _update_economy_labels() -> void:

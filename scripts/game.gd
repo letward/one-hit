@@ -41,6 +41,7 @@ func _ready() -> void:
 	mode = GameConfig.pending_mode
 	online = (mode == "online") or NetworkManager.is_online
 	rng.seed = GameConfig.arena_seed if GameConfig.arena_seed != 0 else randi()
+	_apply_msaa()
 	_build_environment()
 	_build_arena()
 	_build_hud()
@@ -68,6 +69,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # ---------- Aufbau ----------
 
+func _apply_msaa() -> void:
+	var modes := [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_8X]
+	get_viewport().msaa_3d = modes[clampi(GameConfig.msaa, 0, 3)]
+
+
 func _build_environment() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
@@ -85,7 +91,7 @@ func _build_environment() -> void:
 	e.fog_enabled = true
 	e.fog_light_color = Color(0.1, 0.14, 0.22)
 	e.fog_density = 0.015
-	e.glow_enabled = true
+	e.glow_enabled = GameConfig.glow
 	e.glow_intensity = 0.6
 	e.adjustment_enabled = true
 	e.adjustment_brightness = 1.05
@@ -96,7 +102,7 @@ func _build_environment() -> void:
 	sun.rotation_degrees = Vector3(-50, -30, 0)
 	sun.light_color = Color(1.0, 0.9, 0.8)
 	sun.light_energy = 1.1
-	sun.shadow_enabled = true
+	sun.shadow_enabled = GameConfig.shadows
 	add_child(sun)
 	var fill := OmniLight3D.new()
 	fill.position = Vector3(0, 12, 0)
@@ -197,7 +203,12 @@ func _build_arena() -> void:
 		add_child(lb)
 		lb.opened.connect(_on_loot_opened)
 		loot_boxes.append(lb)
-	# Staub-Partikel für Atmosphäre
+	# Staub-Partikel für Atmosphäre (abschaltbar)
+	if GameConfig.dust:
+		_spawn_dust(H)
+
+
+func _spawn_dust(H: float) -> void:
 	var dust := GPUParticles3D.new()
 	dust.amount = 120
 	dust.lifetime = 6.0
@@ -295,6 +306,14 @@ func _build_pause_menu() -> void:
 		GameConfig.shake_enabled = v
 		Save.mark_dirty())
 	vb.add_child(_pause_shake)
+	var fs := CheckBox.new()
+	fs.text = "Vollbild [F11]"
+	fs.button_pressed = GameConfig.is_fullscreen
+	fs.toggled.connect(func(v: bool) -> void:
+		GameConfig.is_fullscreen = v
+		GameConfig.apply_display()
+		Save.mark_dirty())
+	vb.add_child(fs)
 	var b_restart := Button.new()
 	b_restart.text = "Neustart"
 	b_restart.pressed.connect(func() -> void:

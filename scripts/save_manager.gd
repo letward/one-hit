@@ -60,7 +60,14 @@ func load_all() -> void:
 	GameConfig.volume = float(cfg.get_value("settings", "volume", 0.8))
 	GameConfig.base_fov = float(cfg.get_value("settings", "fov", 75.0))
 	GameConfig.shake_enabled = bool(cfg.get_value("settings", "shake", true))
+	GameConfig.is_fullscreen = bool(cfg.get_value("settings", "fullscreen", false))
+	GameConfig.vsync = bool(cfg.get_value("settings", "vsync", true))
+	GameConfig.msaa = int(cfg.get_value("settings", "msaa", 1))
+	GameConfig.glow = bool(cfg.get_value("settings", "glow", true))
+	GameConfig.shadows = bool(cfg.get_value("settings", "shadows", true))
+	GameConfig.dust = bool(cfg.get_value("settings", "dust", true))
 	AudioManager.set_master_volume(GameConfig.volume)
+	GameConfig.apply_display()
 
 
 func _write() -> void:
@@ -79,6 +86,12 @@ func _write() -> void:
 	cfg.set_value("settings", "volume", GameConfig.volume)
 	cfg.set_value("settings", "fov", GameConfig.base_fov)
 	cfg.set_value("settings", "shake", GameConfig.shake_enabled)
+	cfg.set_value("settings", "fullscreen", GameConfig.is_fullscreen)
+	cfg.set_value("settings", "vsync", GameConfig.vsync)
+	cfg.set_value("settings", "msaa", GameConfig.msaa)
+	cfg.set_value("settings", "glow", GameConfig.glow)
+	cfg.set_value("settings", "shadows", GameConfig.shadows)
+	cfg.set_value("settings", "dust", GameConfig.dust)
 	cfg.save(PATH)
 
 

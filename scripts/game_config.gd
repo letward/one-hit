@@ -15,6 +15,12 @@ var mouse_captured: bool = false
 var volume: float = 0.8
 var base_fov: float = 75.0
 var shake_enabled: bool = true
+var is_fullscreen: bool = false
+var vsync: bool = true
+var msaa: int = 1 # 0=Aus, 1=2x, 2=4x, 3=8x
+var glow: bool = true
+var shadows: bool = true
+var dust: bool = true
 
 
 func _ready() -> void:
@@ -30,6 +36,29 @@ func set_captured(captured: bool) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Global: funktioniert in Menü UND Spiel
+	if event.is_action_pressed("fullscreen"):
+		toggle_fullscreen()
+
+
+func toggle_fullscreen() -> void:
+	is_fullscreen = not is_fullscreen
+	apply_display()
+	Save.mark_dirty()
+
+
+func apply_display() -> void:
+	if is_fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	if vsync:
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
+	else:
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 
 
 func _ensure_input() -> void:
@@ -50,6 +79,7 @@ func _ensure_input() -> void:
 	_key("pause", [KEY_ESCAPE])
 	_key("shop", [KEY_B])
 	_key("fps", [KEY_F3])
+	_key("fullscreen", [KEY_F11])
 	_mouse("fire", [MOUSE_BUTTON_LEFT])
 	_mouse("aim", [MOUSE_BUTTON_RIGHT])
 

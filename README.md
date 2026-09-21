@@ -23,6 +23,7 @@ Simpler, immersiver Arena-Shooter mit Godot 4.7 — **Solo gegen Bots** oder **O
 | E / R | Loot öffnen / Nachladen |
 | B | Item-Shop (Waffen, Heal, Schild) |
 | F3 | FPS-Anzeige |
+| F11 | Vollbild an/aus |
 | ESC | Pause |
 
 ## Online spielen
