@@ -3,6 +3,8 @@
 /android/
 exports/
 *.tmp
+*.db
+*.db-journal
 
 # OS junk
 Thumbs.db

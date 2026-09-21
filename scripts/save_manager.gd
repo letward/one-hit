@@ -16,6 +16,8 @@ var crom_token: String = ""
 var last_bonus_day: String = ""
 var host_ip: String = ""
 var host_port: int = 7777
+var neocrom_url: String = ""
+var publish_lobby: bool = true
 
 var _dirty: bool = false
 var _save_t: float = 0.0
@@ -62,6 +64,8 @@ func load_all() -> void:
 	last_bonus_day = str(cfg.get_value("neocrom", "last_bonus", ""))
 	host_ip = str(cfg.get_value("neocrom", "host_ip", ""))
 	host_port = int(cfg.get_value("neocrom", "host_port", 7777))
+	neocrom_url = str(cfg.get_value("neocrom", "server_url", ""))
+	publish_lobby = bool(cfg.get_value("neocrom", "publish", true))
 	# Einstellungen zurück in GameConfig/AudioManager spielen
 	GameConfig.player_name = str(cfg.get_value("settings", "name", GameConfig.player_name))
 	GameConfig.sensitivity = float(cfg.get_value("settings", "sens", GameConfig.sensitivity))
@@ -97,6 +101,8 @@ func _write() -> void:
 	cfg.set_value("neocrom", "last_bonus", last_bonus_day)
 	cfg.set_value("neocrom", "host_ip", host_ip)
 	cfg.set_value("neocrom", "host_port", host_port)
+	cfg.set_value("neocrom", "server_url", neocrom_url)
+	cfg.set_value("neocrom", "publish", publish_lobby)
 	cfg.set_value("settings", "name", GameConfig.player_name)
 	cfg.set_value("settings", "sens", GameConfig.sensitivity)
 	cfg.set_value("settings", "one_hit", GameConfig.one_hit)

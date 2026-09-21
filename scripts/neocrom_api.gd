@@ -1,8 +1,9 @@
 extends Node
 ## Autoload "Neocrom": CromID-Login, CromCloud-Stats, Tagesbonus, Rangliste.
 ##
-## REST-Vertrag (JSON) gegen base_url — beiBackend-Anpassung NUR hier ändern:
-##   POST {base}/auth/crom-id        {crom_id, game, device} -> {ok, token, name}
+## REST-Vertrag (JSON) gegen base_url — bei Backend-Anpassung NUR hier ändern:
+##   POST {base}/auth/register       {crom_id, email, password} -> {ok, token, name} (409 belegt)
+##   POST {base}/auth/login          {crom_id, password} -> {ok, token, name} (401 falsch)
 ##   GET  {base}/cloud/stats         Bearer -> {credits,kills,deaths,games,best_wave,skins_owned,skin_selected}
 ##   PUT  {base}/cloud/stats         Bearer + Stats-Dict -> {ok}
 ##   POST {base}/cloud/bonus         Bearer {day} -> {granted, amount}
@@ -10,11 +11,13 @@ extends Node
 ##   POST {base}/leaderboard/submit  Bearer {kills,best_wave,games} -> {ok, rank}
 ##   GET  {base}/users/me             Bearer -> {name, avatar_url}
 ##   GET  {base}/friends              Bearer -> {friends:[{crom_id,name,online,in_game}]}
+##   POST {base}/friends/add         Bearer {crom_id} -> {ok}
 ##   POST {base}/friends/invite       Bearer {to,game,join_ip,join_port} -> {ok}
 ##   GET  {base}/invites              Bearer -> {invites:[{id,from,from_name,join_ip,join_port,server_id,server_name,seed}]}
 ##   POST {base}/invites/{id}/accept  Bearer -> {ok}
 ##   POST {base}/invites/{id}/decline Bearer -> {ok}
 ##   GET  {base}/servers?game=X       -> {servers:[{id,name,ip,port,players,max_players,seed}]}
+##   POST {base}/servers/register    Bearer {name,ip,port,seed,players,max_players} -> {ok}
 ##
 ## Offline-first: Backend unerreichbar -> lokale CromID-Session + Datei-Cache,
 ## alles wird bei Verbindung transparent synchronisiert. Spiel bleibt spielbar.
@@ -56,10 +59,14 @@ var _busy := false
 var _seen_invites: Dictionary = {}
 var _inv_init := false
 var _poll: Timer = null
+var publish_lobby := true
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if Save.neocrom_url.strip_edges() != "":
+		base_url = Save.neocrom_url.strip_edges()
+	publish_lobby = Save.publish_lobby
 	overlay = OHNeocromOverlay.new()
 	add_child(overlay)
 	overlay.setup(self)
@@ -73,6 +80,29 @@ func _ready() -> void:
 func _on_poll() -> void:
 	if active:
 		fetch_invites(true)
+	if publish_lobby and NetworkManager.is_host:
+		_heartbeat_server()
+
+
+func _heartbeat_server() -> void:
+	_call("POST", "/servers/register", {
+		"name": "%s Lobby" % display_name,
+		"game": GAME_ID,
+		"ip": Save.host_ip if Save.host_ip != "" else lan_ip(),
+		"port": Save.host_port,
+		"seed": GameConfig.arena_seed,
+		"players": NetworkManager.players.size(),
+		"max_players": NetworkManager.MAX_PLAYERS,
+	}, true, _on_void)
+
+
+func set_server_url(url: String) -> void:
+	var clean := url.strip_edges().trim_suffix("/")
+	if clean == "":
+		return
+	base_url = clean
+	Save.neocrom_url = clean
+	Save.mark_dirty()
 
 
 func overlay_open() -> bool:
@@ -104,17 +134,36 @@ func is_busy() -> bool:
 
 # ---------- Login ----------
 
-func login(id: String) -> void:
+func login(id: String, password: String) -> void:
 	var clean := id.strip_edges()
 	if clean.length() < 3:
 		login_finished.emit(false, "CromID zu kurz (min. 3 Zeichen).")
 		return
+	if password.length() < 1:
+		login_finished.emit(false, "Bitte Passwort eingeben.")
+		return
 	if _busy:
 		login_finished.emit(false, "Bitte kurz warten …")
 		return
-	_call("POST", "/auth/crom-id",
-		{"crom_id": clean, "game": GAME_ID, "device": OS.get_unique_id()},
+	_call("POST", "/auth/login",
+		{"crom_id": clean, "password": password},
 		false, _on_login_reply.bind(clean), 5)
+
+
+func register(id: String, email: String, password: String) -> void:
+	var clean := id.strip_edges()
+	if clean.length() < 3:
+		login_finished.emit(false, "CromID zu kurz (min. 3 Zeichen).")
+		return
+	if password.length() < 8:
+		login_finished.emit(false, "Passwort: min. 8 Zeichen.")
+		return
+	if _busy:
+		login_finished.emit(false, "Bitte kurz warten …")
+		return
+	_call("POST", "/auth/register",
+		{"crom_id": clean, "email": email.strip_edges(), "password": password},
+		false, _on_login_reply.bind(clean), 8)
 
 
 func login_offline(id: String) -> void:

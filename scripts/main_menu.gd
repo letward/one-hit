@@ -32,6 +32,12 @@ var _btn_tw: Dictionary = {}
 var _embers: Array[CPUParticles2D] = []
 var _last_credits: int = -1
 var _auth_id: LineEdit
+var _auth_email: LineEdit
+var _auth_pw: LineEdit
+var _auth_primary: Button
+var _auth_tab_login: Button
+var _auth_tab_reg: Button
+var _auth_mode: String = "login"
 var _auth_status: Label
 var _board_rows: VBoxContainer
 var _board_status: Label
@@ -431,17 +437,36 @@ func _build_auth(s: VBoxContainer) -> void:
 	t.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98))
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	s.add_child(t)
-	var hint := _dim_label("Mit deiner CromID anmelden — Stats landen in der CromCloud.")
+	var hint := _dim_label("Echte CromID vom Neocrom-Server — Stats landen in der CromCloud.")
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	s.add_child(hint)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	s.add_child(tabs)
+	_auth_tab_login = _make_button("Login", Vector2(150, 36), 14)
+	_auth_tab_login.pressed.connect(func() -> void: _set_auth_mode("login"))
+	tabs.add_child(_auth_tab_login)
+	_auth_tab_reg = _make_button("Registrieren", Vector2(150, 36), 14)
+	_auth_tab_reg.pressed.connect(func() -> void: _set_auth_mode("register"))
+	tabs.add_child(_auth_tab_reg)
 	_auth_id = LineEdit.new()
 	_auth_id.placeholder_text = "CromID"
 	_auth_id.text = Save.crom_id
 	_auth_id.custom_minimum_size = Vector2(0, 44)
 	s.add_child(_auth_id)
-	var b_login := _make_button("Anmelden", Vector2(0, 52), 18, true)
-	b_login.pressed.connect(_on_login_pressed)
-	s.add_child(b_login)
+	_auth_email = LineEdit.new()
+	_auth_email.placeholder_text = "E-Mail (nur Registrieren)"
+	_auth_email.custom_minimum_size = Vector2(0, 44)
+	s.add_child(_auth_email)
+	_auth_pw = LineEdit.new()
+	_auth_pw.placeholder_text = "Passwort"
+	_auth_pw.secret = true
+	_auth_pw.custom_minimum_size = Vector2(0, 44)
+	s.add_child(_auth_pw)
+	_auth_primary = _make_button("Anmelden", Vector2(0, 52), 18, true)
+	_auth_primary.pressed.connect(_on_auth_primary)
+	s.add_child(_auth_primary)
 	_auth_status = Label.new()
 	_auth_status.add_theme_font_size_override("font_size", 13)
 	_auth_status.add_theme_color_override("font_color", TEXT_DIM)
@@ -451,6 +476,7 @@ func _build_auth(s: VBoxContainer) -> void:
 	var b_off := _make_button("Offline spielen", Vector2(0, 38), 13)
 	b_off.pressed.connect(_on_offline_pressed)
 	s.add_child(b_off)
+	_set_auth_mode("login", false)
 
 
 func _build_board(s: VBoxContainer) -> void:
@@ -484,9 +510,35 @@ func _build_board(s: VBoxContainer) -> void:
 	row.add_child(back)
 
 
+func _set_auth_mode(m: String, animate: bool = true) -> void:
+	_auth_mode = m
+	_auth_email.visible = (m == "register")
+	_auth_primary.text = "Account erstellen" if m == "register" else "Anmelden"
+	for pair in [[_auth_tab_login, "login"], [_auth_tab_reg, "register"]]:
+		var b: Button = pair[0]
+		var sel: bool = _auth_mode == pair[1]
+		b.add_theme_stylebox_override("normal", _btn_style(
+			Color(0.13, 0.2, 0.32) if sel else Color(0.10, 0.14, 0.24),
+			Color(ACCENT, 1.0 if sel else 0.35), 2 if sel else 1))
+	if animate:
+		_fade_children(_screens["auth"])
+
+
+func _on_auth_primary() -> void:
+	if _auth_mode == "register":
+		_auth_status.text = "Erstelle Account …"
+		Neocrom.register(_auth_id.text, _auth_email.text, _auth_pw.text)
+		_auth_pw.text = ""
+	else:
+		_auth_status.text = "Verbinde mit Neocrom …"
+		Neocrom.login(_auth_id.text, _auth_pw.text)
+		_auth_pw.text = ""
+
+
 func _on_login_pressed() -> void:
 	_auth_status.text = "Verbinde mit Neocrom …"
-	Neocrom.login(_auth_id.text)
+	Neocrom.login(_auth_id.text, _auth_pw.text)
+	_auth_pw.text = ""
 
 
 func _on_offline_pressed() -> void:

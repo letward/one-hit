@@ -37,6 +37,20 @@ Full HD, Vollbild, MSAA, Glow, Schatten, VSync).
 
 Einer klickt **Hosten** (Port, Standard 7777), Freunde **Joinen** per IP + Port. Deathmatch bis 10 Kills.
 
+## Neocrom-Server selbst hosten
+
+Echter server-seitiger Login (CromID + E-Mail + Passwort, scrypt-Hash,
+Token-Sessions), CromCloud, Tagesbonus, Rangliste, Friends, Einladungen,
+Serverliste. Zero-Dependency — nur Node.js ≥ 22 nötig:
+
+```
+cd server
+node neocrom-server.js   # PORT=8080, DB: neocrom.db (wird angelegt)
+```
+
+Im Spiel (Overlay [F4] → API-URL) auf `http://SERVER-IP:8080/api/v1`
+zeigen. Fürs Internet: Port freigeben / Reverse-Proxy mit HTTPS davor.
+
 ## Neocrom (CromID · CromCloud · Rangliste)
 
 Zum Spielen meldest du dich mit deiner **CromID** an. Alle Stats

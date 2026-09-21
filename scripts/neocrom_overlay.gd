@@ -14,6 +14,10 @@ var _dot: Label
 var _account_box: VBoxContainer
 var _login_box: VBoxContainer
 var _login_id: LineEdit
+var _login_email: LineEdit
+var _login_pw: LineEdit
+var _login_primary: Button
+var _login_mode: String = "login"
 var _login_status: Label
 var _friends_rows: VBoxContainer
 var _friends_status: Label
@@ -174,10 +178,17 @@ func _build() -> void:
 	_login_id = LineEdit.new()
 	_login_id.placeholder_text = "CromID"
 	_login_box.add_child(_login_id)
-	var b_in := Button.new()
-	b_in.text = "Anmelden"
-	b_in.pressed.connect(_on_login)
-	_login_box.add_child(b_in)
+	_login_email = LineEdit.new()
+	_login_email.placeholder_text = "E-Mail (nur Registrieren)"
+	_login_box.add_child(_login_email)
+	_login_pw = LineEdit.new()
+	_login_pw.placeholder_text = "Passwort"
+	_login_pw.secret = true
+	_login_box.add_child(_login_pw)
+	_login_primary = Button.new()
+	_login_primary.text = "Anmelden"
+	_login_primary.pressed.connect(_on_login)
+	_login_box.add_child(_login_primary)
 	_login_status = Label.new()
 	_login_status.add_theme_font_size_override("font_size", 12)
 	_login_status.add_theme_color_override("font_color", Color(0.6, 0.66, 0.75))
@@ -187,6 +198,10 @@ func _build() -> void:
 	b_off.text = "Offline spielen"
 	b_off.pressed.connect(func() -> void: _nc.login_offline(_login_id.text))
 	_login_box.add_child(b_off)
+	var b_reg := Button.new()
+	b_reg.text = "Account erstellen"
+	b_reg.pressed.connect(_on_register)
+	_login_box.add_child(b_reg)
 	# Freunde
 	vb.add_child(_section("Freunde einladen"))
 	_friends_status = Label.new()
@@ -234,6 +249,32 @@ func _build() -> void:
 	b_srv.text = "Serverliste aktualisieren"
 	b_srv.pressed.connect(func() -> void: _nc.fetch_servers())
 	vb.add_child(b_srv)
+	var url_row := HBoxContainer.new()
+	url_row.add_theme_constant_override("separation", 8)
+	vb.add_child(url_row)
+	var url_l := Label.new()
+	url_l.text = "API:"
+	url_l.add_theme_font_size_override("font_size", 12)
+	url_l.add_theme_color_override("font_color", Color(0.6, 0.66, 0.75))
+	url_row.add_child(url_l)
+	var url_edit := LineEdit.new()
+	url_edit.text = _nc.base_url
+	url_edit.placeholder_text = "https://neocrom.pro/api/v1"
+	url_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	url_edit.text_submitted.connect(func(t: String) -> void:
+		_nc.set_server_url(t)
+		url_edit.text = _nc.base_url
+		_set_status("API-URL gesetzt. Neu anmelden.")
+		refresh_all())
+	url_row.add_child(url_edit)
+	var pub := CheckBox.new()
+	pub.text = "Lobby veröffentlichen"
+	pub.button_pressed = _nc.publish_lobby
+	pub.toggled.connect(func(v: bool) -> void:
+		_nc.publish_lobby = v
+		Save.publish_lobby = v
+		Save.mark_dirty())
+	vb.add_child(pub)
 	# Status + Toast
 	_status = Label.new()
 	_status.add_theme_font_size_override("font_size", 12)
@@ -390,7 +431,14 @@ func _refresh_servers() -> void:
 
 func _on_login() -> void:
 	_login_status.text = "Verbinde …"
-	_nc.login(_login_id.text)
+	_nc.login(_login_id.text, _login_pw.text)
+	_login_pw.text = ""
+
+
+func _on_register() -> void:
+	_login_status.text = "Erstelle Account …"
+	_nc.register(_login_id.text, _login_email.text, _login_pw.text)
+	_login_pw.text = ""
 
 
 func _on_session(_active: bool) -> void:
