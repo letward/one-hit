@@ -26,6 +26,8 @@ var _last_mag: int = -1
 var _cross_base: int = 34
 var _ch_alive: bool = true
 var _ch_ads: bool = false
+var _grain: ColorRect
+var _vig: TextureRect
 var _fps_label: Label
 var _show_fps: bool = false
 
@@ -173,6 +175,41 @@ func _build() -> void:
 	_fps_label.position = Vector2(12, 8)
 	_fps_label.visible = false
 	add_child(_fps_label)
+	# Film-Look (nur Realistisch-Modus): Korn + Vignette
+	_grain = ColorRect.new()
+	_grain.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_grain.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gsh := Shader.new()
+	gsh.code = "shader_type canvas_item;\nvoid fragment() {\n\tfloat g = fract(sin(dot(UV * vec2(1920.0, 1080.0) + vec2(TIME * 60.0, -TIME * 47.0), vec2(127.1, 311.7))) * 43758.5453) - 0.5;\n\tCOLOR = vec4(vec3(0.5 + g * 0.6), 0.055);\n}\n"
+	var gmat := ShaderMaterial.new()
+	gmat.shader = gsh
+	_grain.material = gmat
+	_grain.visible = false
+	add_child(_grain)
+	_vig = TextureRect.new()
+	_vig.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_vig.stretch_mode = TextureRect.STRETCH_SCALE
+	_vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	grad.colors = PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.55)])
+	var gtex := GradientTexture2D.new()
+	gtex.gradient = grad
+	gtex.width = 256
+	gtex.height = 256
+	gtex.fill = GradientTexture2D.FILL_RADIAL
+	gtex.fill_from = Vector2(0.5, 0.5)
+	gtex.fill_to = Vector2(1.0, 0.5)
+	_vig.texture = gtex
+	_vig.visible = false
+	add_child(_vig)
+
+
+func set_realistic_fx(on: bool) -> void:
+	if _grain != null:
+		_grain.visible = on
+	if _vig != null:
+		_vig.visible = on
 
 
 func _process(delta: float) -> void:

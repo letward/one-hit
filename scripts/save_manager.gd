@@ -67,6 +67,7 @@ func load_all() -> void:
 	GameConfig.shadows = bool(cfg.get_value("settings", "shadows", true))
 	GameConfig.dust = bool(cfg.get_value("settings", "dust", true))
 	GameConfig.realistic = bool(cfg.get_value("settings", "realistic", false))
+	GameConfig.ultra = bool(cfg.get_value("settings", "ultra", true))
 	GameConfig.res_idx = int(cfg.get_value("settings", "res", 0))
 	AudioManager.set_master_volume(GameConfig.volume)
 	GameConfig.apply_display()
@@ -95,6 +96,7 @@ func _write() -> void:
 	cfg.set_value("settings", "shadows", GameConfig.shadows)
 	cfg.set_value("settings", "dust", GameConfig.dust)
 	cfg.set_value("settings", "realistic", GameConfig.realistic)
+	cfg.set_value("settings", "ultra", GameConfig.ultra)
 	cfg.set_value("settings", "res", GameConfig.res_idx)
 	cfg.save(PATH)
 

@@ -22,6 +22,7 @@ var glow: bool = true
 var shadows: bool = true
 var dust: bool = true
 var realistic: bool = false
+var ultra: bool = true
 var res_idx: int = 0 # 0=720p, 1=900p, 2=1080p Full HD, 3=Nativ
 
 const RESOLUTIONS: Array[Vector2i] = [

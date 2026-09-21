@@ -108,6 +108,13 @@ func _build_environment() -> void:
 	e.adjustment_brightness = 0.95 if real else 1.05
 	e.adjustment_contrast = 1.15 if real else 1.08
 	e.adjustment_saturation = 0.85 if real else 1.0
+	if GameConfig.realistic and GameConfig.ultra:
+		# High-End: GI, AO, Reflexionen, volumetrischer Nebel
+		e.ssao_enabled = true
+		e.ssr_enabled = true
+		e.sdfgi_enabled = true
+		e.volumetric_fog_enabled = true
+		e.volumetric_fog_density = 0.015
 	env.environment = e
 	add_child(env)
 	var sun := DirectionalLight3D.new()
@@ -120,6 +127,9 @@ func _build_environment() -> void:
 		sun.light_color = Color(1.0, 0.9, 0.8)
 		sun.light_energy = 1.1
 	sun.shadow_enabled = GameConfig.shadows
+	if GameConfig.realistic and GameConfig.ultra:
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun.shadow_blur = 1.5
 	add_child(sun)
 	var fill := OmniLight3D.new()
 	fill.position = Vector3(0, 12, 0)
@@ -138,6 +148,10 @@ func _mat(color: Color, emission: Color = Color(0, 0, 0), e_energy: float = 0.0)
 		m.emission = emission
 		m.emission_energy_multiplier = e_energy
 	return m
+
+
+func _pbr(tint: Color, kind: String, uv: float, metallic: float = 0.0, rough: float = 0.9) -> StandardMaterial3D:
+	return TexFactory.mat(kind, tint, uv, metallic, rough)
 
 
 func _add_box(pos: Vector3, size: Vector3, mat: Material, col: bool = true) -> StaticBody3D:
@@ -162,9 +176,9 @@ func _add_box(pos: Vector3, size: Vector3, mat: Material, col: bool = true) -> S
 
 
 func _build_arena() -> void:
-	# Boden
+	# Boden: Asphalt-PBR
 	_add_box(Vector3(0, -0.5, 0), Vector3(ARENA_HALF * 2 + 4, 1, ARENA_HALF * 2 + 4),
-		_mat(Color(0.09, 0.11, 0.16)))
+		_pbr(Color(0.55, 0.57, 0.62), "ground", 14.0))
 	# Boden-Raster (dünne leuchtende Streifen für Orientierung)
 	for i in range(-2, 3):
 		var f: float = float(i) * 8.0
@@ -172,8 +186,8 @@ func _build_arena() -> void:
 			_mat(Color(0.2, 0.5, 0.8), Color(0.2, 0.5, 0.9), 0.8), false)
 		_add_box(Vector3(0, 0.02, f), Vector3(ARENA_HALF * 2, 0.04, 0.08),
 			_mat(Color(0.2, 0.5, 0.8), Color(0.2, 0.5, 0.9), 0.8), false)
-	# Wände
-	var wall_mat := _mat(Color(0.13, 0.15, 0.22))
+	# Wände: Beton-PBR
+	var wall_mat := _pbr(Color(0.62, 0.64, 0.70), "concrete", 4.0)
 	var trim_mat := _mat(Color(0.1, 0.3, 0.5), Color(0.2, 0.6, 1.0), 1.2)
 	var H := ARENA_HALF
 	_add_box(Vector3(0, 3, -H - 0.5), Vector3(H * 2 + 2, 6, 1), wall_mat)
@@ -185,15 +199,15 @@ func _build_arena() -> void:
 	_add_box(Vector3(0, 5.6, H + 0.4), Vector3(H * 2 + 2, 0.15, 0.15), trim_mat, false)
 	# Cover-Boxen (deterministisch aus Seed; realistisch = dunkler)
 	var cover_mats := [
-		_mat(Color(0.16, 0.18, 0.26)),
-		_mat(Color(0.2, 0.16, 0.2)),
-		_mat(Color(0.14, 0.22, 0.24)),
+		_pbr(Color(0.55, 0.57, 0.64), "concrete", 2.0),
+		_pbr(Color(0.60, 0.52, 0.55), "concrete", 2.0),
+		_pbr(Color(0.50, 0.58, 0.58), "concrete", 2.0),
 	]
 	if GameConfig.realistic:
 		cover_mats = [
-			_mat(Color(0.10, 0.10, 0.12)),
-			_mat(Color(0.13, 0.11, 0.10)),
-			_mat(Color(0.09, 0.12, 0.12)),
+			_pbr(Color(0.38, 0.38, 0.42), "concrete", 2.0),
+			_pbr(Color(0.42, 0.36, 0.33), "concrete", 2.0),
+			_pbr(Color(0.34, 0.40, 0.40), "concrete", 2.0),
 		]
 	for i in 14:
 		var px := rng.randf_range(-H + 4, H - 4)
@@ -207,7 +221,7 @@ func _build_arena() -> void:
 		if rng.randf() < 0.35:
 			_add_box(Vector3(px, sy + 0.5, pz), Vector3(sx * 0.7, 1.0, sz * 0.7), cover_mats[(i + 1) % cover_mats.size()])
 	# Mittel-Plattform als Blickfang
-	_add_box(Vector3(0, 0.25, 0), Vector3(6, 0.5, 6), _mat(Color(0.12, 0.16, 0.24)))
+	_add_box(Vector3(0, 0.25, 0), Vector3(6, 0.5, 6), _pbr(Color(0.5, 0.52, 0.58), "concrete", 3.0))
 	_add_box(Vector3(0, 0.6, 0), Vector3(6.2, 0.08, 6.2), trim_mat, false)
 	# Spawnpunkte (Kreis + Ecken)
 	spawns.clear()
@@ -266,6 +280,7 @@ func _spawn_dust(H: float) -> void:
 func _build_hud() -> void:
 	hud = OHHud.new()
 	add_child(hud)
+	hud.set_realistic_fx(GameConfig.realistic)
 
 
 func _build_pause_menu() -> void:

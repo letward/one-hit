@@ -153,9 +153,14 @@ func _build_classic(palette: Dictionary) -> void:
 	_eye.add_child(_eye_light)
 
 
+func _bright(c: Color) -> Color:
+	# Textur ist mittelgrau -> Tönung aufhellen für echte Zielfarbe
+	return Color(minf(c.r * 1.9, 1.0), minf(c.g * 1.9, 1.0), minf(c.b * 1.9, 1.0))
+
+
 func _build_soldier(palette: Dictionary) -> void:
-	var uni := _solid(palette["uni"], 0.9)
-	var dark := _solid(palette["dark"], 0.85)
+	var uni := TexFactory.mat("fabric", _bright(palette["uni"]), 2.0, 0.0, 0.95)
+	var dark := TexFactory.mat("fabric", _bright(palette["dark"]), 2.0, 0.0, 0.95)
 	var helm := _solid(palette["helmet"], 0.8)
 	var metal := _solid(Color(0.1, 0.1, 0.12), 0.4, 0.7)
 	_mat = uni

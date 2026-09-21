@@ -5,6 +5,7 @@ Simpler, immersiver Arena-Shooter mit Godot 4.7 — **Solo gegen Bots** oder **O
 - First-Person, 6 Waffen (Blaster, Schrot, Railgun, SMG, DMR, LMG)
 - Bot-KI mit Wellen-System (Soldaten-Modelle, Heavy- & Runner-Varianten)
 - **Realistisch-Modus**: düstere Optik, Detail-Waffen, stärkere Bots
+- **Grafik**: prozedurale PBR-Texturen, GI/SSAO/Reflexionen, Filmkorn (Ultra-FX)
 - Loot-Boxen, Explosiv-Fässer, Item-Shop, 8 Skins
 - Credits, Speicherstand, Statistiken — alles ohne externe Assets
 

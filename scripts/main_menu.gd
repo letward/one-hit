@@ -390,6 +390,13 @@ func _build_gfx_page(p: VBoxContainer) -> void:
 		GameConfig.apply_display()
 		Save.mark_dirty())
 	gfx3.add_child(vsync_c)
+	var ultra_c := CheckBox.new()
+	ultra_c.text = "Ultra-FX"
+	ultra_c.button_pressed = GameConfig.ultra
+	ultra_c.toggled.connect(func(v: bool) -> void:
+		GameConfig.ultra = v
+		Save.mark_dirty())
+	gfx3.add_child(ultra_c)
 	var hint := _dim_label("Grafik gilt ab Rundenstart · F3 zeigt FPS")
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(hint)

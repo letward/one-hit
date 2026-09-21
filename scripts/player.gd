@@ -295,8 +295,8 @@ func _gcyl(radius: float, length: float, pos: Vector3, mat: Material) -> MeshIns
 func _build_gun_realistic() -> void:
 	var spec := _gun_spec(current)
 	var def := WeaponDefs.get_def(current)
-	var metal := _gmat(Color(0.11, 0.11, 0.13), 0.85, 0.35)
-	var poly := _gmat(Color(0.16, 0.15, 0.14), 0.0, 0.7)
+	var metal := TexFactory.mat("metal", Color(0.42, 0.42, 0.46), 2.0, 0.85, 0.4)
+	var poly := TexFactory.mat("concrete", Color(0.30, 0.29, 0.28), 1.5, 0.0, 0.8)
 	var accent: Color = def["gun_color"]
 	var aglow := _gmat(accent, 0.2, 0.4, 0.9)
 	var skin_glow := _gmat(SkinDefs.get_def(Save.skin_selected)["accent"], 0.0, 0.5, 1.5)

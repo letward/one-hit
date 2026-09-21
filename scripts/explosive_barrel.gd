@@ -36,10 +36,7 @@ func _ready() -> void:
 	cm.height = 1.1
 	_mesh.mesh = cm
 	_mesh.position = Vector3(0, 0.55, 0)
-	_mat = StandardMaterial3D.new()
-	_mat.albedo_color = Color(0.7, 0.12, 0.1)
-	_mat.metallic = 0.3
-	_mat.roughness = 0.5
+	_mat = TexFactory.mat("metal", Color(1.5, 0.28, 0.24), 2.0, 0.3, 0.5)
 	_mat.emission_enabled = true
 	_mat.emission = Color(0.7, 0.1, 0.08)
 	_mat.emission_energy_multiplier = 0.3
