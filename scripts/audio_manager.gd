@@ -102,3 +102,8 @@ func play_reload() -> void:
 func play_step() -> void:
 	_play(_synth("step", 0.07, func(t: float, k: float) -> float:
 		return (1.0 - k) * randf_range(-0.4, 0.4)), -20.0, randf_range(0.9, 1.1))
+
+
+func play_explosion() -> void:
+	_play(_synth("boom", 0.6, func(t: float, k: float) -> float:
+		return (1.0 - k) * (sin(t * (160.0 - 100.0 * k)) * 0.8 + randf_range(-0.5, 0.5))), -4.0, 1.0)

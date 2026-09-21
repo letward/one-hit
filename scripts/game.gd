@@ -57,6 +57,8 @@ func _ready() -> void:
 		hud.feed("Online-Match gestartet (Seed %d)" % GameConfig.arena_seed)
 	else:
 		_spawn_solo()
+		if GameConfig.realistic:
+			hud.feed("REALISTISCH-Modus: Soldaten, Heavy- & Runner-Bots, Fässer beachten!")
 		_start_wave(1)
 
 
@@ -75,33 +77,48 @@ func _apply_msaa() -> void:
 
 
 func _build_environment() -> void:
+	var real := GameConfig.realistic
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	e.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.05, 0.08, 0.18)
-	sky_mat.sky_horizon_color = Color(0.15, 0.2, 0.35)
-	sky_mat.ground_bottom_color = Color(0.02, 0.02, 0.04)
-	sky_mat.ground_horizon_color = Color(0.08, 0.1, 0.16)
+	if real:
+		# Düstere Abendstimmung
+		sky_mat.sky_top_color = Color(0.02, 0.03, 0.07)
+		sky_mat.sky_horizon_color = Color(0.30, 0.14, 0.10)
+		sky_mat.ground_bottom_color = Color(0.01, 0.01, 0.02)
+		sky_mat.ground_horizon_color = Color(0.10, 0.07, 0.06)
+	else:
+		sky_mat.sky_top_color = Color(0.05, 0.08, 0.18)
+		sky_mat.sky_horizon_color = Color(0.15, 0.2, 0.35)
+		sky_mat.ground_bottom_color = Color(0.02, 0.02, 0.04)
+		sky_mat.ground_horizon_color = Color(0.08, 0.1, 0.16)
 	sky.sky_material = sky_mat
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.7
+	e.ambient_light_energy = 0.45 if real else 0.7
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.1, 0.14, 0.22)
-	e.fog_density = 0.015
+	e.fog_light_color = Color(0.08, 0.07, 0.09) if real else Color(0.1, 0.14, 0.22)
+	e.fog_density = 0.030 if real else 0.015
 	e.glow_enabled = GameConfig.glow
 	e.glow_intensity = 0.6
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
 	e.adjustment_enabled = true
-	e.adjustment_brightness = 1.05
-	e.adjustment_contrast = 1.08
+	e.adjustment_brightness = 0.95 if real else 1.05
+	e.adjustment_contrast = 1.15 if real else 1.08
+	e.adjustment_saturation = 0.85 if real else 1.0
 	env.environment = e
 	add_child(env)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, -30, 0)
-	sun.light_color = Color(1.0, 0.9, 0.8)
-	sun.light_energy = 1.1
+	if real:
+		sun.rotation_degrees = Vector3(-28, -60, 0)
+		sun.light_color = Color(1.0, 0.6, 0.4)
+		sun.light_energy = 0.7
+	else:
+		sun.rotation_degrees = Vector3(-50, -30, 0)
+		sun.light_color = Color(1.0, 0.9, 0.8)
+		sun.light_energy = 1.1
 	sun.shadow_enabled = GameConfig.shadows
 	add_child(sun)
 	var fill := OmniLight3D.new()
@@ -166,12 +183,18 @@ func _build_arena() -> void:
 	# Leucht-Trim oben an Wänden
 	_add_box(Vector3(0, 5.6, -H - 0.4), Vector3(H * 2 + 2, 0.15, 0.15), trim_mat, false)
 	_add_box(Vector3(0, 5.6, H + 0.4), Vector3(H * 2 + 2, 0.15, 0.15), trim_mat, false)
-	# Cover-Boxen (deterministisch aus Seed)
+	# Cover-Boxen (deterministisch aus Seed; realistisch = dunkler)
 	var cover_mats := [
 		_mat(Color(0.16, 0.18, 0.26)),
 		_mat(Color(0.2, 0.16, 0.2)),
 		_mat(Color(0.14, 0.22, 0.24)),
 	]
+	if GameConfig.realistic:
+		cover_mats = [
+			_mat(Color(0.10, 0.10, 0.12)),
+			_mat(Color(0.13, 0.11, 0.10)),
+			_mat(Color(0.09, 0.12, 0.12)),
+		]
 	for i in 14:
 		var px := rng.randf_range(-H + 4, H - 4)
 		var pz := rng.randf_range(-H + 4, H - 4)
@@ -203,6 +226,14 @@ func _build_arena() -> void:
 		add_child(lb)
 		lb.opened.connect(_on_loot_opened)
 		loot_boxes.append(lb)
+	# Explosiv-Fässer
+	var barrel_pos := [Vector3(-5, 0, -5), Vector3(5, 0, 5), Vector3(-5, 0, 5), Vector3(5, 0, -5)]
+	for bi in barrel_pos.size():
+		var bar := OHBarrel.new()
+		bar.name = "Barrel_%d" % bi
+		bar.position = barrel_pos[bi]
+		add_child(bar)
+		bar.exploded.connect(_on_barrel_exploded)
 	# Staub-Partikel für Atmosphäre (abschaltbar)
 	if GameConfig.dust:
 		_spawn_dust(H)
@@ -481,9 +512,24 @@ func _spawn_bot(wave_mult_hp: float = 1.0) -> void:
 	add_child(b)
 	b.global_position = get_spawn_point(b)
 	var bot_names := ["Vex", "Rook", "Nova", "Jax", "Kilo", "Mira", "Onyx", "Pax"]
-	b.setup_bot(bot_names[rng.randi() % bot_names.size()] + "-%d" % (bots.size() + 1),
-		wave_mult_hp, 1.0 + (wave - 1) * 0.08,
-		clampf(0.35 + float(wave) * 0.08 + rng.randf_range(0.0, 0.2), 0.0, 1.0))
+	var kind := "normal"
+	var hm := wave_mult_hp
+	var dm := 1.0 + (wave - 1) * 0.08
+	var sk := clampf(0.35 + float(wave) * 0.08 + rng.randf_range(0.0, 0.2), 0.0, 1.0)
+	var tag := ""
+	var r := rng.randf()
+	if wave >= 2 and r < 0.15:
+		kind = "heavy"
+		hm *= 2.5
+		dm *= 1.5
+		sk = minf(1.0, sk + 0.1)
+		tag = " [Heavy]"
+	elif r < 0.35:
+		kind = "runner"
+		hm *= 0.6
+		dm *= 0.7
+		tag = " [Runner]"
+	b.setup_bot(bot_names[rng.randi() % bot_names.size()] + "-%d" % (bots.size() + 1) + tag, hm, dm, sk, kind)
 	b.died.connect(_on_bot_died)
 	bots.append(b)
 
@@ -504,7 +550,7 @@ func _start_wave(w: int) -> void:
 	bots.clear()
 	for i in count:
 		_spawn_bot(1.0 + (w - 1) * 0.15)
-	_set_wave_cached("Welle %d · Bots: %d%s" % [w, count, " · One-Hit AN" if GameConfig.one_hit else ""])
+	_set_wave_cached("Welle %d · Bots: %d%s" % [w, count, _mode_tags()])
 	hud.show_message("Welle %d" % w, 2.0)
 	hud.feed("Welle %d gestartet (%d Bots)" % [w, count])
 
@@ -516,6 +562,15 @@ func _set_wave_cached(t: String) -> void:
 		hud.set_wave(t)
 
 
+func _mode_tags() -> String:
+	var tags := ""
+	if GameConfig.one_hit:
+		tags += " · One-Hit AN"
+	if GameConfig.realistic:
+		tags += " · REALISTISCH"
+	return tags
+
+
 func _process(_delta: float) -> void:
 	if get_tree().paused:
 		return
@@ -525,7 +580,7 @@ func _process(_delta: float) -> void:
 		for b in bots:
 			if is_instance_valid(b) and b.alive:
 				alive += 1
-		_set_wave_cached("Welle %d · Bots übrig: %d%s" % [wave, alive, " · One-Hit AN" if GameConfig.one_hit else ""])
+		_set_wave_cached("Welle %d · Bots übrig: %d%s" % [wave, alive, _mode_tags()])
 		if alive == 0 and local_player != null:
 			Save.add_credits(50)
 			hud.feed("+50 ⚙ Wellen-Bonus · Shop: [B]")
@@ -603,6 +658,10 @@ func _on_server_lost() -> void:
 		return
 	NetworkManager.reset()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _on_barrel_exploded(_bar: OHBarrel) -> void:
+	hud.feed("💥 Explosiv-Fass detoniert!")
 
 
 func _on_loot_opened(_box: OHLootBox, reward: String) -> void:

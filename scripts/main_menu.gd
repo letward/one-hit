@@ -21,7 +21,7 @@ var _online_btn: Button
 var _title: Label
 var _tip_label: Label
 var _eco_label: Label
-var _skin_row: HBoxContainer
+var _skin_row: VBoxContainer
 var _fs_check: CheckBox
 var _res_opt: OptionButton
 var _solo_box: VBoxContainer
@@ -196,6 +196,17 @@ func _build_play_page(p: VBoxContainer) -> void:
 		_bots_label.text = "Bots: %d" % int(v)
 		Save.mark_dirty())
 	opt_row.add_child(_bots_slider)
+	var real := CheckBox.new()
+	real.text = "Realistisch-Modus"
+	real.button_pressed = GameConfig.realistic
+	real.toggled.connect(func(v: bool) -> void:
+		GameConfig.realistic = v
+		Save.mark_dirty()
+		_refresh_lobby())
+	_solo_box.add_child(real)
+	var real_hint := _dim_label("Düstere Optik, Soldaten-Modelle, Detail-Waffen, Heavy- & Runner-Bots.")
+	real_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_solo_box.add_child(real_hint)
 	var w := _dim_label("[1] Blaster · [2] Scatter-6 · [3] Rail OneHit · [4] Wasp-9 SMG · [5] Falke DMR · [6] Mauer LMG")
 	w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(w)
@@ -302,9 +313,8 @@ func _build_pilot_page(p: VBoxContainer) -> void:
 	var skin_l := _dim_label("SKIN")
 	skin_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(skin_l)
-	_skin_row = HBoxContainer.new()
+	_skin_row = VBoxContainer.new()
 	_skin_row.add_theme_constant_override("separation", 8)
-	_skin_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	p.add_child(_skin_row)
 	_refresh_skins()
 
@@ -591,7 +601,17 @@ func _next_tip() -> void:
 func _refresh_skins() -> void:
 	for ch in _skin_row.get_children():
 		ch.queue_free()
-	for sid in SkinDefs.ORDER:
+	var chunks := [SkinDefs.ORDER.slice(0, 4), SkinDefs.ORDER.slice(4)]
+	for chunk in chunks:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		_skin_row.add_child(row)
+		for sid in chunk:
+			_add_skin_button(row, str(sid))
+
+
+func _add_skin_button(row: HBoxContainer, sid: String) -> void:
 		var def: Dictionary = SkinDefs.get_def(sid)
 		var owned := Save.owns_skin(sid)
 		var selected := Save.skin_selected == sid
@@ -602,7 +622,7 @@ func _refresh_skins() -> void:
 			label += "\n✓ aktiv"
 		var b := Button.new()
 		b.text = label
-		b.custom_minimum_size = Vector2(86, 52)
+		b.custom_minimum_size = Vector2(110, 52)
 		var body: Color = def["body"]
 		var bg := Color(body.r * 0.35 + 0.04, body.g * 0.35 + 0.04, body.b * 0.35 + 0.06, 1.0)
 		var accent: Color = def["accent"]
@@ -616,7 +636,7 @@ func _refresh_skins() -> void:
 		b.mouse_entered.connect(func() -> void: _juice_to(b, Vector2(1.06, 1.06), 0.12))
 		b.mouse_exited.connect(func() -> void: _juice_to(b, Vector2.ONE, 0.18))
 		_track_pivot(b)
-		_skin_row.add_child(b)
+		row.add_child(b)
 
 
 func _on_skin_pressed(sid: String, price: int) -> void:
@@ -704,7 +724,12 @@ func _refresh_lobby() -> void:
 	var rows: Array[Label] = []
 	if _mode == "solo":
 		var l := Label.new()
-		l.text = "Du gegen %d Bots%s — viel Spaß!" % [GameConfig.bot_count, ", One-Hit AN" if GameConfig.one_hit else ""]
+		var tags := ""
+		if GameConfig.one_hit:
+			tags += ", One-Hit AN"
+		if GameConfig.realistic:
+			tags += ", REALISTISCH"
+		l.text = "Du gegen %d Bots%s — viel Spaß!" % [GameConfig.bot_count, tags]
 		_lobby_box.add_child(l)
 		rows.append(l)
 		_start_btn.text = "▶  SOLO STARTEN"

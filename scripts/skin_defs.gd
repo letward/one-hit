@@ -2,7 +2,7 @@ class_name SkinDefs
 extends RefCounted
 ## Skin-Definitionen: Body-Farbe + Akzent (Visier, Crosshair, Namensschild).
 
-const ORDER: Array[String] = ["standard", "abyss", "magma", "venom", "royal", "gold"]
+const ORDER: Array[String] = ["standard", "abyss", "magma", "venom", "royal", "arctic", "stealth", "gold"]
 
 const DATA: Dictionary = {
 	"standard": {
@@ -24,6 +24,14 @@ const DATA: Dictionary = {
 	"royal": {
 		"name": "Royal", "price": 600,
 		"body": Color(0.20, 0.08, 0.45), "accent": Color(0.7, 0.4, 1.0),
+	},
+	"arctic": {
+		"name": "Arctic", "price": 500,
+		"body": Color(0.75, 0.82, 0.90), "accent": Color(0.4, 0.8, 1.0),
+	},
+	"stealth": {
+		"name": "Stealth", "price": 800,
+		"body": Color(0.05, 0.05, 0.07), "accent": Color(1.0, 0.2, 0.25),
 	},
 	"gold": {
 		"name": "Gold", "price": 1000,

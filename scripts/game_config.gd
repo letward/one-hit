@@ -21,6 +21,7 @@ var msaa: int = 1 # 0=Aus, 1=2x, 2=4x, 3=8x
 var glow: bool = true
 var shadows: bool = true
 var dust: bool = true
+var realistic: bool = false
 var res_idx: int = 0 # 0=720p, 1=900p, 2=1080p Full HD, 3=Nativ
 
 const RESOLUTIONS: Array[Vector2i] = [

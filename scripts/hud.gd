@@ -24,6 +24,8 @@ var _hp_fill: StyleBoxFlat
 var _msg_tween: Tween = null
 var _last_mag: int = -1
 var _cross_base: int = 34
+var _ch_alive: bool = true
+var _ch_ads: bool = false
 var _fps_label: Label
 var _show_fps: bool = false
 
@@ -207,6 +209,17 @@ func bind_player(p: OHPlayer) -> void:
 
 
 func _set_crosshair_visible(v: bool) -> void:
+	_ch_alive = v
+	_apply_ch()
+
+
+func set_crosshair_ads(hidden: bool) -> void:
+	_ch_ads = hidden
+	_apply_ch()
+
+
+func _apply_ch() -> void:
+	var v := _ch_alive and not _ch_ads
 	_cross.visible = v
 	_dot.visible = v
 

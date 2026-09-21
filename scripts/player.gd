@@ -60,6 +60,8 @@ var _hold_fire: bool = false
 var _prompt_t: float = 0.0
 var _gun_tween: Tween = null
 var _count_last: int = -1
+var _ads_last: bool = false
+var _sway_t: float = 0.0
 
 static var _tracer_mesh: BoxMesh = null
 static var _impact_quad: QuadMesh = null
@@ -184,6 +186,22 @@ func _build_head() -> void:
 	gun_root = Node3D.new()
 	gun_root.position = Vector3(0.32, -0.3, -0.55)
 	camera.add_child(gun_root)
+	_rebuild_gun()
+
+
+func _rebuild_gun() -> void:
+	if gun_root == null:
+		return
+	for ch in gun_root.get_children():
+		gun_root.remove_child(ch)
+		ch.free()
+	if GameConfig.realistic:
+		_build_gun_realistic()
+	else:
+		_build_gun_classic()
+
+
+func _build_gun_classic() -> void:
 	gun_mesh = MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.11, 0.16, 0.55)
@@ -211,11 +229,122 @@ func _build_head() -> void:
 	gun_tip = Marker3D.new()
 	gun_tip.position = Vector3(0, 0.02, -0.35)
 	gun_root.add_child(gun_tip)
+	_make_muzzle_light()
+
+
+func _make_muzzle_light() -> void:
 	muzzle_light = OmniLight3D.new()
 	muzzle_light.light_color = Color(1.0, 0.85, 0.4)
 	muzzle_light.light_energy = 0.0
 	muzzle_light.omni_range = 6.0
 	gun_tip.add_child(muzzle_light)
+
+
+func _gun_spec(wid: String) -> Dictionary:
+	match wid:
+		"streu":
+			return {"r": 0.34, "bl": 0.30, "br": 0.045, "extra": "pump"}
+		"rail":
+			return {"r": 0.36, "bl": 0.55, "br": 0.020, "extra": "coils"}
+		"wasp":
+			return {"r": 0.28, "bl": 0.15, "br": 0.025, "extra": "rail_top"}
+		"falke":
+			return {"r": 0.34, "bl": 0.50, "br": 0.022, "extra": "scope"}
+		"mauer":
+			return {"r": 0.36, "bl": 0.35, "br": 0.030, "extra": "drum"}
+	return {"r": 0.30, "bl": 0.12, "br": 0.025, "extra": ""}
+
+
+func _gmat(color: Color, metal: float, rough: float, emission_energy: float = 0.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.metallic = metal
+	m.roughness = rough
+	if emission_energy > 0.0:
+		m.emission_enabled = true
+		m.emission = color
+		m.emission_energy_multiplier = emission_energy
+	return m
+
+
+func _gbox(size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.position = pos
+	gun_root.add_child(mi)
+	return mi
+
+
+func _gcyl(radius: float, length: float, pos: Vector3, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = length
+	mi.mesh = cm
+	mi.material_override = mat
+	mi.position = pos
+	mi.rotation.x = PI * 0.5
+	gun_root.add_child(mi)
+	return mi
+
+
+func _build_gun_realistic() -> void:
+	var spec := _gun_spec(current)
+	var def := WeaponDefs.get_def(current)
+	var metal := _gmat(Color(0.11, 0.11, 0.13), 0.85, 0.35)
+	var poly := _gmat(Color(0.16, 0.15, 0.14), 0.0, 0.7)
+	var accent: Color = def["gun_color"]
+	var aglow := _gmat(accent, 0.2, 0.4, 0.9)
+	var skin_glow := _gmat(SkinDefs.get_def(Save.skin_selected)["accent"], 0.0, 0.5, 1.5)
+	var rl: float = spec["r"]
+	# Receiver
+	gun_mesh = _gbox(Vector3(0.09, 0.13, rl), Vector3.ZERO, metal)
+	# Akzent-Streifen + Skin-Leiste
+	_gbox(Vector3(0.095, 0.02, rl * 0.7), Vector3(0, 0.03, 0.02), aglow)
+	_gbox(Vector3(0.095, 0.012, rl * 0.5), Vector3(0, -0.045, 0.03), skin_glow)
+	# Lauf
+	var bl: float = spec["bl"]
+	var front_z := -(rl * 0.5 + bl * 0.5)
+	_gcyl(float(spec["br"]), bl, Vector3(0, 0.01, front_z), metal)
+	# Griff + Schaft
+	_gbox(Vector3(0.07, 0.14, 0.09), Vector3(0, -0.12, 0.10), poly)
+	if rl > 0.32:
+		_gbox(Vector3(0.08, 0.11, 0.16), Vector3(0, -0.01, rl * 0.5 + 0.07), poly)
+	_gbox(Vector3(0.06, 0.16, 0.09), Vector3(0, -0.13, -0.05), poly)
+	# Visierung
+	_gbox(Vector3(0.02, 0.05, 0.03), Vector3(0, 0.09, 0.05), metal)
+	_gbox(Vector3(0.015, 0.04, 0.015), Vector3(0, 0.085, front_z + bl * 0.5 - 0.03), metal)
+	# Extras pro Waffe
+	match str(spec["extra"]):
+		"pump":
+			_gbox(Vector3(0.09, 0.07, 0.14), Vector3(0, -0.05, front_z), poly)
+		"coils":
+			for i in 3:
+				_gbox(Vector3(0.07, 0.07, 0.03), Vector3(0, 0.01, front_z - 0.12 + i * 0.12), aglow)
+		"rail_top":
+			_gbox(Vector3(0.05, 0.02, rl * 0.8), Vector3(0, 0.075, 0), metal)
+		"scope":
+			_gcyl(0.035, 0.18, Vector3(0, 0.11, 0.02), metal)
+			_gbox(Vector3(0.03, 0.05, 0.03), Vector3(0, 0.08, 0.02), metal)
+		"drum":
+			var dm := MeshInstance3D.new()
+			var dc := CylinderMesh.new()
+			dc.top_radius = 0.09
+			dc.bottom_radius = 0.09
+			dc.height = 0.08
+			dm.mesh = dc
+			dm.material_override = poly
+			dm.position = Vector3(0, -0.14, -0.05)
+			gun_root.add_child(dm)
+	# Mündung
+	gun_tip = Marker3D.new()
+	gun_tip.position = Vector3(0, 0.01, front_z - bl * 0.5 - 0.02)
+	gun_root.add_child(gun_tip)
+	_make_muzzle_light()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -272,11 +401,7 @@ func switch_weapon(idx: int) -> void:
 	current = nid
 	reloading = 0.0
 	cooldown = maxf(cooldown, 0.15)
-	var c: Color = WeaponDefs.get_def(current)["gun_color"]
-	var gm := gun_mesh.material_override as StandardMaterial3D
-	if gm:
-		gm.albedo_color = c
-		gm.emission = c
+	_rebuild_gun()
 	weapon_changed.emit(current)
 	_emit_ammo()
 	AudioManager.play_reload()
@@ -290,6 +415,7 @@ func give_weapon(wid: String) -> bool:
 	owned.append(wid)
 	mag_left[wid] = WeaponDefs.get_def(wid)["mag"]
 	current = wid
+	_rebuild_gun()
 	reloading = 0.0
 	cooldown = 0.25
 	weapon_changed.emit(current)
@@ -346,6 +472,11 @@ func _physics_process(delta: float) -> void:
 			_emit_ammo()
 	# ADS (rechte Maustaste = Zielen)
 	ADS = Input.is_action_pressed("aim") and is_local()
+	if ADS != _ads_last:
+		_ads_last = ADS
+		var hud := get_tree().get_first_node_in_group("hud")
+		if hud != null and hud.has_method("set_crosshair_ads"):
+			hud.set_crosshair_ads(ADS and GameConfig.realistic)
 	# Dauerfeuer nur für Auto-Waffen
 	if _hold_fire and is_local():
 		var d: Dictionary = WeaponDefs.get_def(current)
@@ -378,12 +509,18 @@ func _physics_process(delta: float) -> void:
 		_bob_t = lerpf(_bob_t, 0.0, delta * 6.0)
 	var bob := sin(_bob_t) * 0.045
 	head.position.y = 1.62 + bob
+	if GameConfig.realistic:
+		# Atmung: kaum merkliches Schwanken im Stillstand
+		_sway_t += delta
+		head.position.x = sin(_sway_t * 0.9) * 0.008
+	else:
+		head.position.x = 0.0
 	# FOV: Sprint + Schuss-Kick + ADS-Zoom
 	var target_fov := _base_fov
 	if sprinting:
 		target_fov += 8.0
 	if ADS:
-		target_fov = 52.0
+		target_fov = 45.0 if GameConfig.realistic else 52.0
 	_fov_kick = lerpf(_fov_kick, 0.0, delta * 8.0)
 	camera.fov = lerpf(camera.fov, target_fov + _fov_kick, delta * 10.0)
 	# Screenshake (abschaltbar)

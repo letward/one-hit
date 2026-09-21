@@ -3,7 +3,9 @@
 Simpler, immersiver Arena-Shooter mit Godot 4.7 — **Solo gegen Bots** oder **Online gegen Freunde** (self-hosted ENet-Lobby, bis 8 Spieler).
 
 - First-Person, 6 Waffen (Blaster, Schrot, Railgun, SMG, DMR, LMG)
-- Bot-KI mit Wellen-System, Loot-Boxen, Item-Shop, Skins
+- Bot-KI mit Wellen-System (Soldaten-Modelle, Heavy- & Runner-Varianten)
+- **Realistisch-Modus**: düstere Optik, Detail-Waffen, stärkere Bots
+- Loot-Boxen, Explosiv-Fässer, Item-Shop, 8 Skins
 - Credits, Speicherstand, Statistiken — alles ohne externe Assets
 
 ## Start
