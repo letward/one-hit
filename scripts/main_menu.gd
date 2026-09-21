@@ -23,7 +23,7 @@ var _solo_box: VBoxContainer
 var _net_box: VBoxContainer
 var _setup_title: Label
 var _screens: Dictionary = {}
-var _active_screen: String = "home"
+var _active_screen: String = "auth"
 var _set_tabs: Dictionary = {}
 var _set_pages: Dictionary = {}
 var _active_set: String = "pilot"
@@ -31,6 +31,12 @@ var _mode: String = "solo"
 var _btn_tw: Dictionary = {}
 var _embers: Array[CPUParticles2D] = []
 var _last_credits: int = -1
+var _auth_id: LineEdit
+var _auth_status: Label
+var _board_rows: VBoxContainer
+var _board_status: Label
+var _toast_label: Label
+var _toast_tw: Tween = null
 
 
 func _ready() -> void:
@@ -41,9 +47,17 @@ func _ready() -> void:
 	NetworkManager.lobby_changed.connect(_refresh_lobby)
 	NetworkManager.connection_failed.connect(func() -> void: _set_status("Verbindung fehlgeschlagen. IP/Port prüfen."))
 	NetworkManager.server_disconnected.connect(func() -> void: _set_status("Server weg. Wieder hosten/joinen."))
+	Neocrom.session_changed.connect(_on_nc_session)
+	Neocrom.login_finished.connect(_on_nc_login)
+	Neocrom.bonus_claimed.connect(_on_nc_bonus)
+	Neocrom.board_finished.connect(_on_nc_board)
+	Neocrom.resume()
 	_refresh_lobby()
 	_refresh_mode_visibility()
-	_show_screen("home", false)
+	if not Neocrom.active:
+		_show_screen("auth", false)
+	else:
+		_apply_session(false)
 	_play_entrance()
 
 
@@ -86,9 +100,19 @@ func _build() -> void:
 	_screens["home"] = _make_screen(vb)
 	_screens["setup"] = _make_screen(vb)
 	_screens["settings"] = _make_screen(vb)
+	_screens["auth"] = _make_screen(vb)
+	_screens["board"] = _make_screen(vb)
 	_build_home(_screens["home"])
 	_build_setup(_screens["setup"])
 	_build_settings(_screens["settings"])
+	_build_auth(_screens["auth"])
+	_build_board(_screens["board"])
+	_toast_label = Label.new()
+	_toast_label.add_theme_font_size_override("font_size", 14)
+	_toast_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.45))
+	_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast_label.modulate.a = 0.0
+	vb.add_child(_toast_label)
 	var ver := Label.new()
 	ver.text = "v1.0 · Godot 4.7"
 	ver.add_theme_font_size_override("font_size", 11)
@@ -137,6 +161,11 @@ func _build_home(s: VBoxContainer) -> void:
 	var b_set := _make_button("Einstellungen", Vector2(0, 40), 14)
 	b_set.pressed.connect(func() -> void: _show_screen("settings"))
 	s.add_child(b_set)
+	var b_board := _make_button("Rangliste · by Neocrom", Vector2(0, 40), 14)
+	b_board.pressed.connect(func() -> void:
+		_show_screen("board")
+		Neocrom.fetch_board())
+	s.add_child(b_board)
 
 
 func _build_setup(s: VBoxContainer) -> void:
@@ -313,6 +342,9 @@ func _build_set_pilot(p: VBoxContainer) -> void:
 		GameConfig.shake_enabled = v
 		Save.mark_dirty())
 	av_row.add_child(shake)
+	var out := _make_button("Abmelden", Vector2(0, 36), 13)
+	out.pressed.connect(_on_logout_pressed)
+	p.add_child(out)
 
 
 func _build_set_gfx(p: VBoxContainer) -> void:
@@ -385,6 +417,157 @@ func _build_set_skins(p: VBoxContainer) -> void:
 	_skin_rows.add_theme_constant_override("separation", 8)
 	p.add_child(_skin_rows)
 	_refresh_skins()
+
+
+func _build_auth(s: VBoxContainer) -> void:
+	var t := Label.new()
+	t.text = "Anmelden"
+	t.add_theme_font_size_override("font_size", 22)
+	t.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	s.add_child(t)
+	var hint := _dim_label("Mit deiner CromID anmelden — Stats landen in der CromCloud.")
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	s.add_child(hint)
+	_auth_id = LineEdit.new()
+	_auth_id.placeholder_text = "CromID"
+	_auth_id.text = Save.crom_id
+	_auth_id.custom_minimum_size = Vector2(0, 44)
+	s.add_child(_auth_id)
+	var b_login := _make_button("Anmelden", Vector2(0, 52), 18, true)
+	b_login.pressed.connect(_on_login_pressed)
+	s.add_child(b_login)
+	_auth_status = Label.new()
+	_auth_status.add_theme_font_size_override("font_size", 13)
+	_auth_status.add_theme_color_override("font_color", TEXT_DIM)
+	_auth_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_auth_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	s.add_child(_auth_status)
+	var b_off := _make_button("Offline spielen", Vector2(0, 38), 13)
+	b_off.pressed.connect(_on_offline_pressed)
+	s.add_child(b_off)
+
+
+func _build_board(s: VBoxContainer) -> void:
+	var t := Label.new()
+	t.text = "Rangliste"
+	t.add_theme_font_size_override("font_size", 22)
+	t.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	s.add_child(t)
+	var sub := _dim_label("by Neocrom · alle Stats aus der CromCloud")
+	sub.add_theme_font_size_override("font_size", 12)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	s.add_child(sub)
+	_board_status = Label.new()
+	_board_status.add_theme_font_size_override("font_size", 12)
+	_board_status.add_theme_color_override("font_color", TEXT_DIM)
+	_board_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	s.add_child(_board_status)
+	_board_rows = VBoxContainer.new()
+	_board_rows.add_theme_constant_override("separation", 3)
+	s.add_child(_board_rows)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	s.add_child(row)
+	var b_ref := _make_button("Aktualisieren", Vector2(170, 38), 13)
+	b_ref.pressed.connect(func() -> void: Neocrom.fetch_board())
+	row.add_child(b_ref)
+	var back := _make_button("‹ Zurück", Vector2(170, 38), 13)
+	back.pressed.connect(func() -> void: _show_screen("home"))
+	row.add_child(back)
+
+
+func _on_login_pressed() -> void:
+	_auth_status.text = "Verbinde mit Neocrom …"
+	Neocrom.login(_auth_id.text)
+
+
+func _on_offline_pressed() -> void:
+	_auth_status.text = "Starte Offline-Sitzung …"
+	Neocrom.login_offline(_auth_id.text)
+
+
+func _on_nc_session(active: bool) -> void:
+	if active and _active_screen == "auth":
+		_apply_session(true)
+
+
+func _on_nc_login(ok: bool, message: String) -> void:
+	_auth_status.text = message
+	if ok:
+		_apply_session(true)
+
+
+func _apply_session(go_home: bool) -> void:
+	GameConfig.player_name = Neocrom.display_name
+	Save.mark_dirty()
+	if _name_edit != null:
+		_name_edit.text = Neocrom.display_name
+		_name_edit.editable = false
+	_update_economy_labels()
+	Neocrom.claim_bonus()
+	if go_home:
+		_show_screen("home")
+
+
+func _on_nc_bonus(granted: bool, amount: int) -> void:
+	_update_economy_labels()
+	if granted:
+		_toast("Tagesbonus +%d ⚙ · Willkommen, %s!" % [amount, Neocrom.display_name])
+
+
+func _on_nc_board(_ok: bool, message: String) -> void:
+	_board_status.text = message
+	_refresh_board()
+
+
+func _refresh_board() -> void:
+	for ch in _board_rows.get_children():
+		ch.queue_free()
+	if Neocrom.board.is_empty():
+		var l := Label.new()
+		l.text = "Noch keine Einträge."
+		l.add_theme_color_override("font_color", TEXT_DIM)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_board_rows.add_child(l)
+		return
+	var rank := 0
+	for e in Neocrom.board:
+		rank += 1
+		if e is Dictionary:
+			var nm := str((e as Dictionary).get("name", "?"))
+			var line := "#%d  %s   🏆 %d · 🌊 %d" % [rank, nm,
+				int((e as Dictionary).get("kills", 0)),
+				int((e as Dictionary).get("best_wave", 0))]
+			var l := Label.new()
+			l.text = line
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			if nm == Neocrom.display_name:
+				l.text += " · du"
+				l.add_theme_color_override("font_color", ACCENT)
+			else:
+				l.add_theme_color_override("font_color", Color(0.88, 0.90, 0.94))
+			_board_rows.add_child(l)
+
+
+func _toast(text: String) -> void:
+	_toast_label.text = text
+	if _toast_tw != null and _toast_tw.is_valid():
+		_toast_tw.kill()
+	_toast_tw = create_tween()
+	_toast_label.modulate.a = 0.0
+	_toast_tw.tween_property(_toast_label, "modulate:a", 1.0, 0.4)
+	_toast_tw.tween_interval(2.2)
+	_toast_tw.tween_property(_toast_label, "modulate:a", 0.0, 0.6)
+
+
+func _on_logout_pressed() -> void:
+	Neocrom.logout()
+	if _name_edit != null:
+		_name_edit.editable = true
+	_show_screen("auth")
 
 
 func _show_set(name: String, animate: bool = true) -> void:
@@ -707,6 +890,9 @@ func _refresh_lobby() -> void:
 
 
 func _on_start() -> void:
+	if not Neocrom.active:
+		_show_screen("auth")
+		return
 	GameConfig.player_name = _name_edit.text.strip_edges() if _name_edit.text.strip_edges() != "" else "Spieler"
 	if _mode == "solo":
 		NetworkManager.reset()

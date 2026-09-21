@@ -11,6 +11,9 @@ var total_kills: int = 0
 var total_deaths: int = 0
 var games_played: int = 0
 var best_wave: int = 0
+var crom_id: String = ""
+var crom_token: String = ""
+var last_bonus_day: String = ""
 
 var _dirty: bool = false
 var _save_t: float = 0.0
@@ -52,6 +55,9 @@ func load_all() -> void:
 	total_deaths = int(cfg.get_value("stats", "deaths", 0))
 	games_played = int(cfg.get_value("stats", "games", 0))
 	best_wave = int(cfg.get_value("stats", "best_wave", 0))
+	crom_id = str(cfg.get_value("neocrom", "crom_id", ""))
+	crom_token = str(cfg.get_value("neocrom", "token", ""))
+	last_bonus_day = str(cfg.get_value("neocrom", "last_bonus", ""))
 	# Einstellungen zurück in GameConfig/AudioManager spielen
 	GameConfig.player_name = str(cfg.get_value("settings", "name", GameConfig.player_name))
 	GameConfig.sensitivity = float(cfg.get_value("settings", "sens", GameConfig.sensitivity))
@@ -82,6 +88,9 @@ func _write() -> void:
 	cfg.set_value("stats", "deaths", total_deaths)
 	cfg.set_value("stats", "games", games_played)
 	cfg.set_value("stats", "best_wave", best_wave)
+	cfg.set_value("neocrom", "crom_id", crom_id)
+	cfg.set_value("neocrom", "token", crom_token)
+	cfg.set_value("neocrom", "last_bonus", last_bonus_day)
 	cfg.set_value("settings", "name", GameConfig.player_name)
 	cfg.set_value("settings", "sens", GameConfig.sensitivity)
 	cfg.set_value("settings", "one_hit", GameConfig.one_hit)

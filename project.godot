@@ -22,6 +22,7 @@ GameConfig="*res://scripts/game_config.gd"
 AudioManager="*res://scripts/audio_manager.gd"
 NetworkManager="*res://scripts/network_manager.gd"
 Save="*res://scripts/save_manager.gd"
+Neocrom="*res://scripts/neocrom_api.gd"
 
 [display]
 

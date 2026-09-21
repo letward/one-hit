@@ -371,6 +371,8 @@ func _build_pause_menu() -> void:
 	b_quit.text = "Zum Menü"
 	b_quit.pressed.connect(func() -> void:
 		get_tree().paused = false
+		Neocrom.upload_cloud()
+		Neocrom.submit_score()
 		NetworkManager.reset()
 		GameConfig.set_captured(false)
 		get_tree().change_scene_to_file("res://scenes/main.tscn"))
@@ -598,6 +600,8 @@ func _process(_delta: float) -> void:
 		_set_wave_cached("Welle %d · Bots übrig: %d%s" % [wave, alive, _mode_tags()])
 		if alive == 0 and local_player != null:
 			Save.add_credits(50)
+			Neocrom.upload_cloud()
+			Neocrom.submit_score()
 			hud.feed("+50 ⚙ Wellen-Bonus · Shop: [B]")
 			_start_wave(wave + 1)
 			local_player.heal(25)

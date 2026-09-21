@@ -37,6 +37,15 @@ Full HD, Vollbild, MSAA, Glow, Schatten, VSync).
 
 Einer klickt **Hosten** (Port, Standard 7777), Freunde **Joinen** per IP + Port. Deathmatch bis 10 Kills.
 
+## Neocrom (CromID · CromCloud · Rangliste)
+
+Zum Spielen meldest du dich mit deiner **CromID** an. Alle Stats
+(Credits, Kills, Wellen, Skins) werden in der **CromCloud** gespeichert,
+es gibt einen **Tagesbonus (+100 ⚙)** und eine **Rangliste by Neocrom**
+im Menü. Ohne Verbindung läuft das Spiel als Offline-Sitzung weiter und
+synchronisiert später. Client: `scripts/neocrom_api.gd`, Basis-URL
+`https://neocrom.pro/api/v1` (REST-Vertrag steht als Kommentar im File).
+
 ## Struktur
 
 ```
